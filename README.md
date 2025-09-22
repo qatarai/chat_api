@@ -1,3 +1,41 @@
+# Chat API
+
+## Development
+
+### Create venv (Python 3.10+)
+
+Run these from the project root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install --upgrade setuptools
+pip install -r requirements.txt
+```
+
+### Install package in editable mode
+
+```bash
+pip install -e .
+```
+
+### Run tests (manually)
+
+```bash
+python tests/test_basic.py
+```
+
+## Usage
+
+Generally, the steps are:
+1. Implement the `Transport` interface for your specific use case (e.g., websocket, HTTP, etc.).
+2. Create a `ServerToClient` or `ClientToServer` instance, passing in your transport.
+3. Start sending/receiving events.
+
+Refer to `tests/test_basic.py` for the following basic demo on the complete client-server flow:
+![Basic demo](./misc/basic_flow.png)
+
 ## Sequence diagram
 
 ```mermaid
@@ -7,113 +45,97 @@ sequenceDiagram
     participant C as Client
     participant S as Server
 
-    Note over C,S: Audio/Video bytes stream in chunks. Text/FunctionCall are not.
-    Note over C,S: Legend — blue: Client->Server, green: Server->Client
+    Note over C,S: Audio/Video bytes stream in chunks.
+    Note over C,S: Text may stream via repeated OutputText events.
+    Note over C,S: FunctionCall does not stream.
+    Note over C,S: Legend<br/>blue = Client to Server<br/>green = Server to Client
 
     rect rgba(51,136,255,0.18)
-        Note over C,S: Config
-        Note over C,S: - event_type: EventType.Config<br/>- chat_id: uuid?<br/>- input_mode: InputMode<br/>- output_text: bool<br/>- output_audio: bool<br/>- output_video: bool<br/>- silence_duration: float (ms, -1 => device)
-        C->>S: 
+        Note over C,S: Config Event<br/>- event_type: EventType.Config<br/>- chat_id: uuid?<br/>- input_mode: InputMode<br/>- output_text: bool<br/>- output_audio: bool<br/>- output_video: bool<br/>- silence_duration: float (ms, -1 => device)
+        C->>S: Config
     end
 
     alt input_mode = Audio
         loop Input audio chunks
             rect rgba(51,136,255,0.18)
-                Note over C,S: Input (Audio)
-                Note over C,S: - bytes: audio
-                C-)S: 
+                Note over C,S: Input (Audio)<br/>- bytes: audio
+                C-->>S: Audio Chunk
             end
         end
         rect rgba(51,136,255,0.18)
-            Note over C,S: InputEnd
-            Note over C,S: Condition: input_mode = Audio AND silence_duration = -1
-            Note over C,S: - event_type: EventType.InputEnd
-            C->>S: 
+            Note over C,S: InputEnd<br/>Condition: input_mode = Audio AND silence_duration = -1<br/>- event_type: EventType.InputEnd
+            C->>S: InputEnd
         end
     else input_mode = Text
         rect rgba(51,136,255,0.18)
-            Note over C,S: InputText
-            Note over C,S: - event_type: EventType.InputText<br/>- data: string
-            C->>S: 
+            Note over C,S: InputText<br/>- event_type: EventType.InputText<br/>- data: string
+            C->>S: InputText
         end
     end
 
     rect rgba(51,136,255,0.18)
-        Note over C,S: InputInterrupt
-        Note over C,S: Condition: can occur at any time
-        Note over C,S: - event_type: EventType.InputInterrupt<br/>- interrupt_type: InterruptType
-        C->>S: 
+        Note over C,S: InputInterrupt<br/>Condition: can occur at any time<br/>- event_type: EventType.InputInterrupt<br/>- interrupt_type: InterruptType
+        C->>S: InputInterrupt
     end
 
     rect rgba(76,175,80,0.18)
-        Note over C,S: OutputInitialization
-        Note over C,S: - event_type: EventType.OutputInitialization<br/>- chat_id: uuid<br/>- request_id: uuid
-        S-->>C: 
+        Note over C,S: OutputInitialization<br/>- event_type: EventType.OutputInitialization<br/>- chat_id: uuid<br/>- request_id: uuid
+        S-->>C: OutputInitialization
     end
 
     rect rgba(76,175,80,0.18)
-        Note over C,S: InputEnd (echo)
-        Note over C,S: Condition: input_mode = Audio AND silence_duration = -1
-        Note over C,S: - event_type: EventType.InputEnd
-        S-->>C: 
+        Note over C,S: InputEnd (echo)<br/>Condition: input_mode = Audio AND silence_duration = -1<br/>- event_type: EventType.InputEnd
+        S-->>C: InputEnd (echo)
     end
 
     loop For each stage
         rect rgba(76,175,80,0.18)
-            Note over C,S: OutputStage
-            Note over C,S: - event_type: EventType.OutputStage<br/>- id: uuid<br/>- parent_id: uuid<br/>- title: string<br/>- description: string
-            S-->>C: 
+            Note over C,S: OutputStage<br/>- event_type: EventType.OutputStage<br/>- id: uuid<br/>- parent_id: uuid<br/>- title: string<br/>- description: string
+            S-->>C: OutputStage
         end
 
         rect rgba(76,175,80,0.18)
-            Note over C,S: OutputContent
-            Note over C,S: - event_type: EventType.OutputContent<br/>- id: uuid<br/>- type: ContentType<br/>- stage_id: uuid
-            S-->>C: 
+            Note over C,S: OutputContent<br/>- event_type: EventType.OutputContent<br/>- id: uuid<br/>- type: ContentType<br/>- stage_id: uuid
+            S-->>C: OutputContent
         end
 
         rect rgba(76,175,80,0.18)
-            Note over C,S: OutputContentAddition
-            Note over C,S: - event_type: EventType.OutputContentAddition<br/>- content_id: uuid<br/>- …
-            S-->>C: 
+            Note over C,S: OutputContentAddition<br/>- event_type: EventType.OutputContentAddition<br/>- content_id: uuid<br/>- …
+            S-->>C: OutputContentAddition
         end
 
         alt type = ContentType.Audio
             loop Audio data chunks
                 rect rgba(76,175,80,0.18)
-                    Note over C,S: Data (Audio)
-                    Note over C,S: Info: each chunk prefixed with uuid (16 bytes)
-                    Note over C,S: - uuid: uuid (16 bytes)<br/>- bytes: audio
-                    S-)C: 
+                    Note over C,S: Data (Audio)<br/>Info: each chunk prefixed with uuid (16 bytes)<br/>- uuid: uuid (16 bytes)<br/>- bytes: audio
+                    S-->>C: Audio Chunk
                 end
             end
         else type = ContentType.Video
             loop Video data chunks
                 rect rgba(76,175,80,0.18)
-                    Note over C,S: Data (Video)
-                    Note over C,S: Info: each chunk prefixed with uuid (16 bytes)
-                    Note over C,S: - uuid: uuid (16 bytes)<br/>- bytes: video
-                    S-)C: 
+                    Note over C,S: Data (Video)<br/>Info: each chunk prefixed with uuid (16 bytes)<br/>- uuid: uuid (16 bytes)<br/>- bytes: video
+                    S-->>C: Video Chunk
                 end
             end
         else type = ContentType.Text
-            rect rgba(76,175,80,0.18)
-                Note over C,S: OutputText
-                Note over C,S: - event_type: EventType.OutputText<br/>- data: string
-                S-->>C: 
+            loop Text data chunks
+                rect rgba(76,175,80,0.18)
+                    Note over C,S: OutputText<br/>- event_type: EventType.OutputText<br/>- data: string (chunk)
+                    S-->>C: Text Chunk
+                end
             end
         else type = ContentType.FunctionCall
             rect rgba(76,175,80,0.18)
-                Note over C,S: OutputFunctionCall
-                Note over C,S: - event_type: EventType.OutputFunctionCall<br/>- data: string (json)
-                S-->>C: 
+                Note over C,S: OutputFunctionCall<br/>- event_type: EventType.OutputFunctionCall<br/>- data: string (json)
+                S-->>C: FunctionCall
             end
         end
     end
 
     rect rgba(76,175,80,0.18)
-        Note over C,S: OutputEnd
-        Note over C,S: - event_type: EventType.OutputEnd
-        S-->>C: 
+        Note over C,S: OutputEnd<br/>- event_type: EventType.OutputEnd
+        S-->>C: OutputEnd
     end
 ```
 
@@ -151,7 +173,7 @@ sequenceDiagram
   - chat_id: uuid (string)
   - request_id: uuid (string)
 
-- InputEnd (echoed by server when input_mode = Audio and silence is detected on device)
+- InputEnd (only when input_mode = Audio and silence is detected by server)
   - event_type: EventType.InputEnd (int)
 
 - OutputStage
@@ -173,16 +195,16 @@ sequenceDiagram
   - …: additional metadata (implementation-defined)
 
 - Data (Audio)
-- uuid: uuid (16 bytes; per-content stream chunk identifier)
+  - uuid: uuid (16 bytes; per-content stream chunk identifier)
   - bytes: audio (binary, streamed)
 
 - Data (Video)
-- uuid: uuid (16 bytes; per-content stream chunk identifier)
+  - uuid: uuid (16 bytes; per-content stream chunk identifier)
   - bytes: video (binary, streamed)
 
-- OutputText
+- OutputText (streamed; multiple events allowed)
   - event_type: EventType.OutputText (int)
-  - data: string
+  - data: string (chunk)
 
 - OutputFunctionCall
   - event_type: EventType.OutputFunctionCall (int)
@@ -206,21 +228,23 @@ sequenceDiagram
 - EventType
   - 0: Config
   - 1: InputText
-  - 2: InputEnd
-  - 3: InputInterrupt
-  - 4: OutputInitialization
-  - 5: OutputStage
-  - 6: OutputContent
-  - 7: OutputContentAddition
-  - 8: OutputText
-  - 9: OutputFunctionCall
-  - 10: OutputEnd
+  - 2: InputMedia
+  - 3: InputEnd
+  - 4: InputInterrupt
+  - 5: OutputInitialization
+  - 6: OutputStage
+  - 7: OutputContent
+  - 8: OutputContentAddition
+  - 9: OutputText
+  - 10: OutputMedia
+  - 11: OutputFunctionCall
+  - 12: OutputEnd
 
 - InterruptType
   - 0: User
   - 1: System
 
 ## Notes
-- uuid refers to standard UUID string identifiers unless otherwise specified.
-- The 16-byte uuid fields in media Data messages are UUID identifiers scoped to a content stream, used to correlate chunks.
-- Audio/Video data are streamed in chunks; Text and FunctionCall payloads are not chunked.
+- `uuid` refers to standard UUID string identifiers unless otherwise specified.
+- The 16-byte `uuid` fields in media `Data` messages are UUID identifiers scoped to a content stream, used to correlate chunks.
+- Audio/Video/Text data may be streamed in chunks; FunctionCall payloads are not chunked.
