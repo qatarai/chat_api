@@ -7,7 +7,7 @@ from typing import Callable, Optional
 from ..enums import InterruptType
 from ..models import Config, Event, InputEnd, InputInterrupt, InputText
 from ..streaming import StreamHandle
-from ..transport import Transport
+from ..transports import Transport
 
 
 class ClientToServer:

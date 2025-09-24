@@ -26,6 +26,16 @@ pip install -e .
 python tests/test_basic.py
 ```
 
+## Installation
+Base installation:
+```bash
+pip install "git+https://github.com/qatarai/chat_api.git"
+```
+Installing ready-to-use extensions for WebSockets and FastAPI (optional):
+```bash
+pip install "git+https://github.com/qatarai/chat_api.git#egg=chat_api[websockets,fastapi]"
+```
+
 ## Usage
 
 Generally, the steps are:

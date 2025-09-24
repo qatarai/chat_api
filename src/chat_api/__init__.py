@@ -17,6 +17,10 @@ from .models import (
     OutputText,
 )
 
+# Transports are now under chat_api.transports. We intentionally do not
+# import optional implementations here to avoid ImportError at import time.
+from .transports.base import InMemoryTransport
+
 __all__ = [
     "ContentType",
     "EventType",
@@ -36,4 +40,5 @@ __all__ = [
     "InputEnd",
     "InputInterrupt",
     "OutputContent",
+    "InMemoryTransport",
 ]

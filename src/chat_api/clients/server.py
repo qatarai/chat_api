@@ -20,7 +20,7 @@ from ..models import (
     OutputStage,
 )
 from ..streaming import StreamHandle
-from ..transport import Transport
+from ..transports import Transport
 from .shared import _ServerToClientShared
 
 
