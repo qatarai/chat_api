@@ -10,38 +10,44 @@ import threading
 from typing import Any, Coroutine, Optional
 
 
-class AsyncioSchedulingMixin:
+class AsyncioMixin:
     """Mixin that provides helpers to schedule coroutines from sync methods.
 
     Attempts to schedule work on a provided loop if available; otherwise uses
     the running loop or starts a private background loop if necessary.
     """
 
-    _loop: Optional[asyncio.AbstractEventLoop]
+    _loop: Optional[asyncio.AbstractEventLoop] = None
 
-    def _ensure_loop(self) -> asyncio.AbstractEventLoop:
+    def ensure_loop(self) -> asyncio.AbstractEventLoop:
         """Ensure there is an event loop to schedule tasks on.
 
         Returns the provided loop if running, else the current running loop,
         else spins up a new background loop thread and returns it.
         """
-        loop = getattr(self, "_loop", None)
-        if loop is not None and loop.is_running():
-            return loop
+        # If the stored loop is running, return it.
+        if self._loop is not None and self._loop.is_running():
+            return self._loop
+
+        # If there is a running loop, return it.
         try:
             return asyncio.get_running_loop()
+
+        # If there is no running loop, create a new one.
         except RuntimeError:
-            loop = asyncio.new_event_loop()
-            self._loop = loop
+            self._loop = asyncio.new_event_loop()
 
             def _run() -> None:
-                loop.run_forever()
+                if self._loop is not None:
+                    self._loop.run_forever()
+                else:
+                    raise RuntimeError("No loop to run")
 
             t = threading.Thread(target=_run, daemon=True)
             t.start()
-            return loop
+            return self._loop
 
-    def _schedule_send(self, coro: Coroutine[Any, Any, None]) -> None:
+    def run_coroutine(self, coro: Coroutine[Any, Any, None]) -> asyncio.Task:
         """Schedule a coroutine to run thread-safely on the target loop."""
-        loop = self._ensure_loop()
-        asyncio.run_coroutine_threadsafe(coro, loop)
+        self.ensure_loop()
+        return asyncio.create_task(coro)

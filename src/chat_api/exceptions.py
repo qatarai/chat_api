@@ -11,3 +11,7 @@ class ChatApiValidationError(ChatApiError):
 
 class ChatApiStateError(ChatApiError):
     """Raised when operations are performed in an invalid state."""
+
+
+class ChatApiTransportError(ChatApiError):
+    """Raised when a transport error occurs."""

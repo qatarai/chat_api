@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Literal, Optional
+import asyncio
+from asyncio import Task
+from typing import Any, Callable, Dict, Literal, Optional, Tuple
 
 from ..enums import ContentType
 from ..models import (
@@ -10,334 +12,245 @@ from ..models import (
     Config,
     Event,
     InputEnd,
-    InputInterrupt,
     InputMedia,
     InputText,
+    Interrupt,
     OutputContent,
+    OutputContentAddition,
     OutputEnd,
     OutputFunctionCall,
-    OutputInitialization,
+    OutputMedia,
     OutputStage,
+    OutputText,
+    OutputTranscription,
+    ServerReady,
+    Transcription,
 )
-from ..streaming import StreamHandle
+from ..states import ServerRequestState
+from ..streaming import SendStreamHandle
 from ..transports import Transport
-from .shared import _ServerToClientShared
+from .base import Base
 
 
-class ServerToClient(_ServerToClientShared):
-    """Synchronous client for sending server->client events with validation.
+class Server(Base):
+    """Server.
 
-    Transport must be provided by caller and is used for sending text (JSON)
-    and bytes (media).
+    Transport must be provided by caller and is used for receiving events.
     """
 
     def __init__(
         self,
         transport: Transport,
-        stop_automatic_handling: bool = False,
-        on_input: Optional[
-            Callable[
-                [
-                    ServerToClient,
-                    InputText | InputMedia | InputEnd | InputInterrupt,
-                ],
-                None,
-            ]
-        ] = None,
-    ) -> None:
-        """Initialize the client.
-
-        Args:
-            transport: The transport used to send events and media.
-            stop_automatic_handling: Whether to stop automatic handling of events
-                received from the client. If False (default), the events are
-                automatically parsed, validated, and responded to.
-            on_input: Optional callback to handle input events.
-        """
-        super().__init__()
-        self._tx = transport
-
-        if not stop_automatic_handling:
-            self._tx.on_event_received(self._on_event)
-
-        self._on_input = on_input
-
-    #######################################################
-    # Receiving events
-    #######################################################
-    def _on_event(self, evt: Event) -> None:
-        """Handle a client->server event."""
-        if isinstance(evt, Config):
-            self._on_config(evt)
-        elif isinstance(
-            evt, (InputText, InputMedia, InputEnd, InputInterrupt)
-        ):
-            if self._on_input is not None:
-                self._on_input(self, evt)
-        else:
-            raise ValueError(f"Unexpected event type: {evt.event_type}")
-
-    def _on_config(self, evt: Config) -> None:
-        """Handle a Config event."""
-        self.initialize(config=evt)
-
-    def on_input(
-        self,
-        callback: Callable[
+        event_callback: Callable[
             [
-                ServerToClient,
-                InputText | InputMedia | InputEnd | InputInterrupt,
+                Server,
+                Config | InputText | InputMedia | InputEnd | Interrupt,
             ],
             None,
         ],
     ) -> None:
-        """Set the callback for input events."""
-        self._on_input = callback
+        """Initialize the client.
 
-    #######################################################
-    # Sending events
-    #######################################################
-
-    def _ensure_output_content(
-        self,
-        *,
-        content_type: ContentType,
-        stage_id: ID,
-        content_id: Optional[ID],
-    ) -> OutputContent:
-        """Ensure content exists; send OutputContent if it was not already sent.
-
-        Returns a content that is ensured to exist.
+        Args:
+            transport: The transport used to communicate with the client.
+            event_callback: Optional callback to handle input events.
         """
-        content_evt, should_send = self._get_output_content_state(
-            content_id=content_id,
-            content_type=content_type,
-            stage_id=stage_id,
+        # Used for type-hinting
+        self._request_state: ServerRequestState = ServerRequestState()
+
+        super().__init__(
+            request_state=self._request_state,
+            transport=transport,
         )
 
-        if should_send:
-            self._tx.send_json(content_evt)
+        self.event_callback = event_callback
 
-        return content_evt
+        # Keep track of finish status
+        self._finished = asyncio.Event()
 
-    def initialize(
+        # Register callback for incoming events
+        self._transport.on_event_received(self.event_received_callback)
+
+    async def join(self) -> None:
+        """Wait for the server to finish sending all queued actions/events."""
+        await self._finished.wait()
+
+    def event_received_callback(self, evt: Event) -> None:
+        """Handle a client->server event."""
+        if isinstance(evt, Config):
+            self.ready(evt)
+
+        elif isinstance(evt, InputEnd):
+            self._request_state.end_input()
+
+        elif isinstance(evt, Interrupt):
+            self._request_state.interrupt()
+            self._finished.set()
+
+        if isinstance(
+            evt, (Config, InputText, InputMedia, InputEnd, Interrupt)
+        ):
+            self.event_callback(self, evt)
+
+    def ready(
         self,
-        *,
         config: Config,
         request_id: Optional[ID] = None,
-    ) -> OutputInitialization:
-        """Send OutputInitialization and mark the request initialized.
+    ) -> Tuple[ServerReady, Optional[Task[None]]]:
+        """Tell the client that the server is ready to receive input.
 
         Args:
             config: The config to send.
             request_id: Optional existing request id. If not provided a new one is generated.
 
         Returns:
-            OutputInitialization: The initialization event sent.
+            Tuple[ServerReady, Optional[Task[None]]]: The ready event sent and the task for sending it.
         """
-        evt = self._prepare_output_initialization(
+        config.chat_id = config.chat_id or self.new_uuid()
+        request_id = request_id or self.new_uuid()
+
+        self._request_state.ready(config=config)
+
+        evt = ServerReady(
             chat_id=config.chat_id,
             request_id=request_id,
         )
+        task = self._transport.send_event(evt)
+        return evt, task
 
-        # Maintain state
-        config.chat_id = evt.chat_id
-        self._state.initialize(
-            config=config,
-            request_id=evt.request_id,
-        )
-
-        # Send event
-        self._tx.send_json(evt)
-
-        return evt
-
-    def end_input(self) -> None:
-        """InputEnd event to signal the end of the input stream."""
-        # Maintain state
-        self._state.end_input()
-
-        # Send event
-        self._tx.send_json(InputEnd())
+    def transcription(
+        self,
+        transcription: Transcription,
+    ) -> Tuple[OutputTranscription, Optional[Task[None]]]:
+        """Send audio transcription."""
+        self._request_state.transcription()
+        evt = OutputTranscription(transcription=transcription)
+        task = self._transport.send_event(evt)
+        return evt, task
 
     def stage(
         self,
-        *,
         title: str,
         description: str,
         stage_id: Optional[ID] = None,
-        parent_id: Optional[ID] = None,
-    ) -> OutputStage:
-        """Send an OutputStage event.
-
-        Args:
-            title: Stage title.
-            description: Stage description.
-            stage_id: Optional stage id to use; generates one if not provided.
-            parent_id: Optional parent stage id.
-
-        Returns:
-            OutputStage: The stage sent.
-        """
-        evt = self._prepare_output_stage(
+    ) -> Tuple[OutputStage, Optional[Task[None]]]:
+        """Send an OutputStage event."""
+        stage_id = stage_id or self.new_uuid()
+        evt = OutputStage(
+            id=stage_id,
             title=title,
             description=description,
-            stage_id=stage_id,
-            parent_id=parent_id,
         )
 
-        # Maintain state
-        self._state.add_stage(evt)
-
-        # Send event
-        self._tx.send_json(evt)
-
-        return evt
+        self._request_state.stage(evt)
+        task = self._transport.send_event(evt)
+        return evt, task
 
     def content(
         self,
-        *,
         content_type: ContentType,
         stage_id: ID,
         content_id: Optional[ID] = None,
-    ) -> OutputContent:
-        """Send an OutputContent event for a stage.
+    ) -> Tuple[OutputContent, Optional[Task[None]]]:
+        """Send an OutputContent event.
 
-        Args:
-            content_type: The content type of the new content.
-            stage_id: The stage receiving the content.
-            content_id: Optional content id to use; generates one if omitted.
+        Despite it NOT being the typical behavior of this class,
+        if the content was already sent, the client won't raise an error.
+
+        In the case that the content was not already sent, it will be sent.
 
         Returns:
-            OutputContent: The content sent.
+            Tuple[OutputContent, Optional[Task[None]]]: The content sent and the task for sending it.
         """
-        evt = self._prepare_output_content(
-            content_id=content_id,
-            content_type=content_type,
+        content_id = content_id or self.new_uuid()
+        evt = OutputContent(
+            id=content_id,
+            type=content_type,
             stage_id=stage_id,
         )
 
-        # Maintain state
-        self._state.add_content(evt)
+        task = None
+        if not self._request_state.has_content(evt):
+            self._request_state.content(evt)
+            task = self._transport.send_event(evt)
 
-        # Send event
-        self._tx.send_json(evt)
-
-        return evt
+        return evt, task
 
     def content_addition(
         self,
-        *,
         content_id: ID,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """Send an OutputContentAddition for an existing content item.
-
-        Args:
-            content_id: The id of the existing content.
-            metadata: Optional additional metadata.
-        """
-        evt = self._prepare_output_content_addition(
+        metadata: Dict[str, Any],
+    ) -> Tuple[OutputContentAddition, Optional[Task[None]]]:
+        """Send an OutputContentAddition for an existing content item."""
+        evt = OutputContentAddition(
             content_id=content_id,
             metadata=metadata,
         )
-
-        # Maintain state
-        self._state.add_content_addition(evt)
-
-        # Send event
-        self._tx.send_json(evt)
+        self._request_state.content_addition(evt)
+        task = self._transport.send_event(evt)
+        return evt, task
 
     def function_call(
         self,
-        *,
         stage_id: ID,
-        content_id: Optional[ID] = None,
         json_data: str,
-    ) -> OutputFunctionCall:
-        """Send an OutputFunctionCall event, ensuring content exists or creating it.
-
-        Args:
-            stage_id: The stage receiving the function call.
-            content_id: Optional existing content id.
-            json_data: Opaque JSON string representing the function call payload.
-
-        Returns:
-            OutputFunctionCall: The function call sent.
-        """
-        content_evt = self._ensure_output_content(
+        content_id: Optional[ID] = None,
+    ) -> Tuple[OutputFunctionCall, Optional[Task[None]]]:
+        """Send an OutputFunctionCall event."""
+        content_evt, task = self.content(
             content_type=ContentType.FUNCTION_CALL,
             stage_id=stage_id,
             content_id=content_id,
         )
 
-        evt = self._prepare_output_function_call(
+        evt = OutputFunctionCall(
             content_id=content_evt.id,
-            json_data=json_data,
+            data=json_data,
         )
-
-        # Maintain state
-        self._state.add_function_call(content_id=content_evt.id)
-
-        # Send event
-        self._tx.send_json(evt)
-
-        return evt
-
-    def end(self) -> None:
-        """Send OutputEnd and close the request if all streams are closed.
-
-        Raises:
-            ChatApiStateError: If any media streams are still open.
-        """
-        # Maintain state
-        self._state.end_output()
-
-        # Send event
-        self._tx.send_json(OutputEnd())
+        self._request_state.function_call(evt)
+        task = self._transport.send_event(evt)
+        return evt, task
 
     def text_stream(
         self,
         *,
         stage_id: ID,
         content_id: Optional[ID] = None,
-    ) -> StreamHandle[str]:
-        """Start a text stream by sending OutputContent and first OutputText.
+    ) -> Tuple[SendStreamHandle[str], Optional[Task[None]]]:
+        """Start a text stream.
 
         Args:
             stage_id: The target stage.
             content_id: Optional pre-defined content id.
 
         Returns:
-            StreamHandle[str]: A handle with send and end methods.
+            Tuple[SendStreamHandle[str], Optional[Task[None]]]: A handle with send
+                and end methods and the task for sending the content.
         """
-        content_evt = self._ensure_output_content(
+        content_evt, task = self.content(
             content_type=ContentType.TEXT,
             stage_id=stage_id,
             content_id=content_id,
         )
 
-        # Maintain state
-        self._state.open_stream(content_id=content_evt.id)
-
-        def send(data: str) -> None:
-            evt = self._prepare_output_text(
+        def send(data: str) -> Tuple[OutputText, Optional[Task[None]]]:
+            evt = OutputText(
                 content_id=content_evt.id,
                 data=data,
             )
+            self._request_state.text(evt)
+            task = self._transport.send_event(evt)
+            return evt, task
 
-            self._tx.send_json(evt)
+        def end() -> Tuple[Optional[OutputEnd], Optional[Task[None]]]:
+            return None, None
 
-        def end() -> None:
-            self._state.close_stream(content_id=content_evt.id)
-
-        stream_handle = StreamHandle[str](
+        stream_handle = SendStreamHandle[str](
             content_id=content_evt.id,
             send=send,
             end=end,
         )
-
-        return stream_handle
+        return stream_handle, task
 
     def media_stream(
         self,
@@ -345,7 +258,7 @@ class ServerToClient(_ServerToClientShared):
         content_type: Literal[ContentType.AUDIO, ContentType.VIDEO],
         stage_id: ID,
         content_id: Optional[ID] = None,
-    ) -> StreamHandle[bytes]:
+    ) -> Tuple[SendStreamHandle[bytes], Optional[Task[None]]]:
         """Start a binary media stream (audio or video).
 
         Args:
@@ -354,33 +267,43 @@ class ServerToClient(_ServerToClientShared):
             content_id: Optional pre-defined content id.
 
         Returns:
-            StreamHandle[bytes]: A handle with send and end methods.
-
-        Raises:
-            ChatApiValidationError: If content_type is not supported.
+            Tuple[SendStreamHandle[bytes], Optional[Task[None]]]: A handle with send
+                and end methods and the task for sending the content.
         """
-        content_evt = self._ensure_output_content(
+        content_evt, task = self.content(
             content_type=content_type,
             stage_id=stage_id,
             content_id=content_id,
         )
 
-        # Maintain state
-        self._state.open_stream(content_id=content_evt.id)
-
-        def send(data: bytes) -> None:
-            evt = self._prepare_output_media(
+        def send(data: bytes) -> Tuple[OutputMedia, Optional[Task[None]]]:
+            evt = OutputMedia(
                 content_id=content_evt.id,
                 data=data,
             )
+            self._request_state.media(evt)
+            task = self._transport.send_bytes(evt.get_bytes())
+            return evt, task
 
-            self._tx.send_bytes(evt.bytes())
+        def end() -> Tuple[Optional[OutputEnd], Optional[Task[None]]]:
+            return None, None
 
-        def end() -> None:
-            self._state.close_stream(content_id=content_evt.id)
-
-        return StreamHandle[bytes](
+        stream_handle = SendStreamHandle[bytes](
             content_id=content_evt.id,
             send=send,
             end=end,
         )
+        return stream_handle, task
+
+    def end(self) -> Tuple[OutputEnd, Optional[Task[None]]]:
+        """Tell the client that the server has finished sending output."""
+        self._request_state.end()
+        evt = OutputEnd()
+        task = self._transport.send_event(evt)
+
+        if task:
+            task.add_done_callback(lambda _: self._finished.set())
+        else:
+            self._finished.set()
+
+        return evt, task

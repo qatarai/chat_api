@@ -2,82 +2,154 @@
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+import asyncio
+from asyncio import Task
+from typing import Callable, Optional, Tuple
 
+from ..clients.base import Base
 from ..enums import InterruptType
-from ..models import Config, Event, InputEnd, InputInterrupt, InputText
-from ..streaming import StreamHandle
+from ..models import (
+    ID,
+    Config,
+    Event,
+    InputEnd,
+    InputMedia,
+    InputText,
+    Interrupt,
+    OutputContent,
+    OutputContentAddition,
+    OutputEnd,
+    OutputFunctionCall,
+    OutputMedia,
+    OutputStage,
+    OutputText,
+    OutputTranscription,
+    ServerReady,
+)
+from ..states.client import ClientRequestState
+from ..streaming import SendStreamHandle
 from ..transports import Transport
 
 
-class ClientToServer:
+class Client(Base):
     """Synchronous client for sending client->server messages with validation."""
 
     def __init__(
         self,
         transport: Transport,
+        event_callback: Callable[[Client, Event], None],
         config: Config = Config(),
-        on_output: Optional[Callable[[ClientToServer, Event], None]] = None,
     ) -> None:
         """Initialize the client.
 
         Args:
             transport: The transport used to send events and media.
+            event_callback: The callback to call when an event is received.
             config: The configuration for the client.
-            on_output: The callback to call when an output event is received.
         """
-        self._tx = transport
+        # Used for type-hinting
+        self._request_state: ClientRequestState = ClientRequestState()
+
+        super().__init__(
+            request_state=self._request_state,
+            transport=transport,
+        )
+
         self._config = config
-        self._on_output = on_output
+        self._request_id: Optional[ID] = None
+        self.event_callback = event_callback
+
+        # Set the parse media uuid flag to True
+        self._transport.set_parse_media_uuid(True)
+
+        # Keep track of finish status
+        self._finished = asyncio.Event()
 
         # Register callback for incoming events
-        self._tx.on_event_received(self._on_event)
+        self._transport.on_event_received(self.event_received_callback)
 
         # Send config
-        self._tx.send_json(self._config)
+        self._transport.send_event(self._config)
 
-    def _on_event(self, evt: Event) -> None:
+    async def join(self) -> None:
+        """Wait for the client to finish sending all queued actions/events."""
+        await self._finished.wait()
+
+    def event_received_callback(self, evt: Event) -> None:
         """Handle an incoming event."""
-        if self._on_output:
-            self._on_output(self, evt)
+        if isinstance(evt, ServerReady):
+            self._config.chat_id = evt.chat_id
+            self._request_id = evt.request_id
+            self._request_state.ready(self._config)
 
-    def on_output(
-        self,
-        callback: Callable[[ClientToServer, Event], None],
-    ) -> None:
-        """Set the callback for output events."""
-        self._on_output = callback
+        elif isinstance(evt, InputEnd):
+            self._request_state.end_input()
 
-    def text(self, data: str) -> None:
+        elif isinstance(evt, OutputEnd):
+            self._finished.set()
+
+        elif isinstance(evt, Interrupt):
+            self._request_state.interrupt()
+            self._finished.set()
+
+        if isinstance(
+            evt,
+            (
+                ServerReady,
+                OutputTranscription,
+                InputEnd,
+                OutputStage,
+                OutputContent,
+                OutputContentAddition,
+                OutputText,
+                OutputFunctionCall,
+                OutputMedia,
+                OutputEnd,
+                Interrupt,
+            ),
+        ):
+            self.event_callback(self, evt)
+
+    def text(self, data: str) -> Tuple[InputText, Optional[Task[None]]]:
         """Send InputText."""
+        self._request_state.text()
         evt = InputText(data=data)
-        self._tx.send_json(evt)
+        task = self._transport.send_event(evt)
+        return evt, task
 
-    def media_stream(self) -> StreamHandle[bytes]:
-        """Start sending raw audio input bytes to the server.
+    def media_stream(
+        self,
+    ) -> SendStreamHandle[bytes]:
+        """Start sending raw audio input bytes to the server."""
 
-        Returns:
-            StreamHandle[bytes]: A handle with send and end methods.
-        """
+        def send(data: bytes) -> Tuple[InputMedia, Optional[Task[None]]]:
+            self._request_state.media()
+            evt = InputMedia(data=data)
+            task = self._transport.send_bytes(evt.data)
+            return evt, task
 
-        def send(data: bytes) -> None:
-            self._tx.send_bytes(data)
+        def end() -> Tuple[Optional[InputEnd], Optional[Task[None]]]:
+            return self.end_input()
 
-        def end() -> None:
-            self.end()
-
-        return StreamHandle[bytes](
+        return SendStreamHandle[bytes](
             content_id=None,
             send=send,
             end=end,
         )
 
-    def end(self) -> None:
+    def end_input(self) -> Tuple[InputEnd, Optional[Task[None]]]:
         """Send InputEnd."""
-        self._tx.send_json(InputEnd())
+        self._request_state.end_input()
+        evt = InputEnd()
+        task = self._transport.send_event(evt)
+        return evt, task
 
     def interrupt(
-        self, interrupt_type: InterruptType = InterruptType.USER
-    ) -> None:
-        """Send InputInterrupt."""
-        self._tx.send_json(InputInterrupt(interrupt_type=interrupt_type))
+        self,
+        interrupt_type: InterruptType = InterruptType.USER,
+    ) -> Tuple[Interrupt, Optional[Task[None]]]:
+        """Send Interrupt."""
+        self._request_state.interrupt()
+        evt = Interrupt(interrupt_type=interrupt_type)
+        task = self._transport.send_event(evt)
+        return evt, task

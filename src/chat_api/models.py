@@ -9,9 +9,17 @@ from pydantic import BaseModel, Field
 
 from .enums import ContentType, EventType, InputMode, InterruptType
 
-# Type alias for IDs
+########################################################
+# Type aliases
+########################################################
+
 ID = UUID
 new_id = uuid4
+
+
+########################################################
+# Events
+########################################################
 
 
 class Event(BaseModel):
@@ -53,24 +61,33 @@ class InputEnd(Event):
     event_type: EventType = Field(default=EventType.INPUT_END, frozen=True)
 
 
-class InputInterrupt(Event):
+class Interrupt(Event):
     """Client->Server interrupt signal indicating reason for interruption."""
 
-    event_type: EventType = Field(
-        default=EventType.INPUT_INTERRUPT, frozen=True
-    )
+    event_type: EventType = Field(default=EventType.INTERRUPT, frozen=True)
     interrupt_type: InterruptType
 
 
 # Server -> Client
-class OutputInitialization(Event):
-    """Server->Client initialization frame with chat and request ids."""
+class ServerReady(Event):
+    """Server->Client ready signal indicating the server is ready to receive events.
 
-    event_type: EventType = Field(
-        default=EventType.OUTPUT_INITIALIZATION, frozen=True
-    )
+    This is sent after the server has received the client's configuration and
+    is ready to start processing the request.
+    """
+
+    event_type: EventType = Field(default=EventType.SERVER_READY, frozen=True)
     chat_id: ID
     request_id: ID
+
+
+class OutputTranscription(Event):
+    """Server->Client audio transcription."""
+
+    event_type: EventType = Field(
+        default=EventType.OUTPUT_TRANSCRIPTION, frozen=True
+    )
+    transcription: Transcription
 
 
 class OutputStage(Event):
@@ -135,6 +152,65 @@ class OutputMedia(Event):
     content_id: ID
     data: bytes
 
-    def bytes(self) -> bytes:
+    def get_bytes(self) -> bytes:
         """Get the bytes of the media chunk."""
         return self.content_id.bytes + self.data
+
+
+########################################################
+# Speech transcription
+########################################################
+
+
+class Word(BaseModel):
+    """A word in a speech.
+
+    Attributes:
+        text : str or None, default=None
+            The text of the word.
+        start : float or None, default=None
+            Start time of the word in seconds.
+        end : float or None, default=None
+            End time of the word in seconds.
+        speaker : str or None, default=None
+            Speaker identifier for the segment.
+        score : float or None, default=None
+            Confidence score of the word.
+    """
+
+    text: str | None = None
+    start: float | None = None
+    end: float | None = None
+    speaker: str | None = None
+    score: float | None = None
+
+
+class Segment(Word):
+    """A segment of a speech.
+
+    Attributes:
+        words : list[Word] or None, default=None
+            List of words in the segment.
+    """
+
+    words: list[Word] | None = None
+
+
+class Transcription(BaseModel):
+    """A list of segments of a speech.
+
+    Contains the transcription of the speech, including segments and optional
+    speaker embeddings.
+
+    Attributes:
+        segments : list[Segment]
+            List of transcribed segments.
+        language : str or None, default=None
+            Detected or specified language of the transcription.
+        speaker_embeddings : dict[str, list[float]] or None, default=None
+            Speaker embeddings for each speaker ID.
+    """
+
+    segments: list[Segment]
+    language: str | None = None
+    speaker_embeddings: dict[str, list[float]] | None = None

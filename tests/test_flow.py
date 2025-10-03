@@ -7,14 +7,9 @@ from enum import Enum
 from websockets.asyncio.client import connect
 from websockets.asyncio.server import serve
 
-from chat_api import (
-    ClientToServer,
-    Event,
-    InputText,
-    OutputInitialization,
-    ServerToClient,
-)
+from chat_api import Client, Event, Server
 from chat_api.enums import ContentType
+from chat_api.models import InputEnd, ServerReady
 from chat_api.transports import InMemoryTransport, Transport
 from chat_api.transports.websockets import WebsocketsTransport
 
@@ -42,8 +37,8 @@ def setup_inmemory_transports() -> tuple[InMemoryTransport, InMemoryTransport]:
     """
     s2c_tx = InMemoryTransport()
     c2s_tx = InMemoryTransport()
-    s2c_tx.on_event_sent(c2s_tx.event_received)
-    c2s_tx.on_event_sent(s2c_tx.event_received)
+    s2c_tx.on_event_sent(c2s_tx.notify_event_received_listeners)
+    c2s_tx.on_event_sent(s2c_tx.notify_event_received_listeners)
     return s2c_tx, c2s_tx
 
 
@@ -80,20 +75,20 @@ async def test_complete_flow(transport_type: TransportType):
     """Test the complete flow."""
 
     # Prepare interactions
-    def on_input(s2c: ServerToClient, event: Event) -> None:
+    def on_input(s2c: Server, event: Event) -> None:
         print_event(server=True, event=event)
 
-        if isinstance(event, InputText):
-            stage = s2c.stage(
+        if isinstance(event, InputEnd):
+            stage, _ = s2c.stage(
                 title="stage 1",
                 description="stage 1",
             )
-            content = s2c.content(
+            content, _ = s2c.content(
                 content_type=ContentType.TEXT,
                 stage_id=stage.id,
             )
 
-            stream = s2c.text_stream(
+            stream, _ = s2c.text_stream(
                 stage_id=stage.id,
                 content_id=content.id,
             )
@@ -101,30 +96,32 @@ async def test_complete_flow(transport_type: TransportType):
             stream.send("world")
             stream.end()
 
-    def on_output(c2s: ClientToServer, event: Event) -> None:
+            s2c.end()
+
+    def on_output(c2s: Client, event: Event) -> None:
         print_event(server=False, event=event)
 
-        if isinstance(event, OutputInitialization):
+        if isinstance(event, ServerReady):
             c2s.text("hello")
+            c2s.end_input()
 
     # Initialize the server and client transports
     s2c_tx, c2s_tx = await transport_type.setup_transports()
 
-    s2c = ServerToClient(
+    s2c = Server(
         s2c_tx,
-        on_input=on_input,
+        event_callback=on_input,
     )
 
-    c2s = ClientToServer(
+    c2s = Client(
         c2s_tx,
-        on_output=on_output,
+        event_callback=on_output,
     )
 
-    await asyncio.sleep(1)
-    s2c.end()
-
-    del s2c, c2s
-    print("done")
+    await asyncio.gather(
+        s2c.join(),
+        c2s.join(),
+    )
 
 
 if __name__ == "__main__":

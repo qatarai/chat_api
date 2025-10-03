@@ -13,7 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import InMemoryTransport, Transport
+from .base import Transport
+from .in_memory import InMemoryTransport
 
 __all__ = [
     "Transport",

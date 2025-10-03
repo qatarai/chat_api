@@ -1,9 +1,9 @@
 """Client package exports for Chat API."""
 
-from .client import ClientToServer
-from .server import ServerToClient
+from .client import Client
+from .server import Server
 
 __all__ = [
-    "ClientToServer",
-    "ServerToClient",
+    "Client",
+    "Server",
 ]

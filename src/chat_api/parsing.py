@@ -11,32 +11,34 @@ from .models import (
     Config,
     Event,
     InputEnd,
-    InputInterrupt,
     InputMedia,
     InputText,
+    Interrupt,
     OutputContent,
     OutputContentAddition,
     OutputEnd,
     OutputFunctionCall,
-    OutputInitialization,
     OutputMedia,
     OutputStage,
     OutputText,
+    OutputTranscription,
+    ServerReady,
 )
 
 _EVENT_CLASS_BY_TYPE: dict[int, Type[Event]] = {
     EventType.CONFIG: Config,
     EventType.INPUT_END: InputEnd,
-    EventType.INPUT_INTERRUPT: InputInterrupt,
+    EventType.INTERRUPT: Interrupt,
     EventType.INPUT_MEDIA: InputMedia,
     EventType.INPUT_TEXT: InputText,
     EventType.OUTPUT_CONTENT: OutputContent,
     EventType.OUTPUT_CONTENT_ADDITION: OutputContentAddition,
     EventType.OUTPUT_END: OutputEnd,
     EventType.OUTPUT_FUNCTION_CALL: OutputFunctionCall,
-    EventType.OUTPUT_INITIALIZATION: OutputInitialization,
     EventType.OUTPUT_STAGE: OutputStage,
     EventType.OUTPUT_TEXT: OutputText,
+    EventType.SERVER_READY: ServerReady,
+    EventType.OUTPUT_TRANSCRIPTION: OutputTranscription,
 }
 
 
@@ -68,7 +70,7 @@ def parse_text_event(text: str) -> Event:
 
 def parse_bytes_event(
     blob: bytes,
-    is_input: bool,
+    parse_media_uuid: bool,
 ) -> InputMedia | OutputMedia:
     """Parse a bytes event into a typed model.
 
@@ -90,7 +92,7 @@ def parse_bytes_event(
 
     return (
         InputMedia(data=blob)
-        if is_input
+        if not parse_media_uuid
         else OutputMedia(
             content_id=UUID(bytes=blob[:16]),
             data=blob[16:],

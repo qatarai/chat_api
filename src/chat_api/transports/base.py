@@ -2,119 +2,113 @@
 
 from __future__ import annotations
 
-import json
+import asyncio
 from abc import ABC, abstractmethod
-from typing import Callable, Set
+from typing import Callable, Optional, Set
 
-from pydantic import BaseModel
-
+from chat_api.exceptions import ChatApiTransportError
 from chat_api.models import Event
 from chat_api.parsing import parse_bytes_event, parse_text_event
 
 
 class Transport(ABC):
-    """Synchronous transport interface.
+    """Transport interface.
 
-    Implementations must provide send_text, send_bytes, and receive loop that
-    calls `msg_received` when inbound messages arrive.
+    Implementations must provide `send_text_impl`, `send_bytes_impl`, and call
+    `notify_msg_received_listeners` when inbound messages arrive.
     """
 
     def __init__(self) -> None:
+        """Initialize the transport."""
         self.on_event_received_callbacks: Set[Callable[[Event], None]] = set()
         self.on_event_sent_callbacks: Set[Callable[[Event], None]] = set()
+        self.parse_media_uuid: bool = False
+
+    def set_parse_media_uuid(self, parse_media_uuid: bool) -> None:
+        """Set the parse media uuid flag."""
+        self.parse_media_uuid = parse_media_uuid
 
     @abstractmethod
-    def _send_text(self, data: str) -> None:  # pragma: no cover - abstract
+    def send_text_impl(self, data: str) -> Optional[asyncio.Task[None]]:
+        """The transport-specific implementation of sending text data.
+
+        This method should not be called directly. Use `send_text` instead.
+        """
         raise NotImplementedError()
 
     @abstractmethod
-    def _send_bytes(self, data: bytes) -> None:  # pragma: no cover - abstract
+    def send_bytes_impl(self, data: bytes) -> Optional[asyncio.Task[None]]:
+        """The transport-specific implementation of sending bytes data.
+
+        This method should not be called directly. Use `send_bytes` instead.
+        """
         raise NotImplementedError()
 
-    def send_text(self, data: str) -> None:
-        """Send text data to the transport."""
-        self._send_text(data)
-        self.msg_sent(data)
+    def send_text(self, data: str) -> Optional[asyncio.Task[None]]:
+        """Send text data."""
+        task = self.send_text_impl(data)
+        self.notify_msg_sent_listeners(data)
+        return task
 
-    def send_bytes(self, data: bytes) -> None:
-        """Send bytes data to the transport."""
-        self._send_bytes(data)
-        self.msg_sent(data)
+    def send_bytes(self, data: bytes) -> Optional[asyncio.Task[None]]:
+        """Send bytes data."""
+        task = self.send_bytes_impl(data)
+        self.notify_msg_sent_listeners(data)
+        return task
 
-    def send_json(self, obj: BaseModel | dict) -> None:
-        """Send JSON data to the transport."""
-        payload = (
-            obj.model_dump_json()
-            if isinstance(obj, BaseModel)
-            else json.dumps(obj)
-        )
-        self._send_text(payload)
-        if isinstance(obj, Event):
-            self.event_sent(obj)
-        else:
-            self.msg_sent(payload)
+    def send_event(self, obj: Event) -> Optional[asyncio.Task[None]]:
+        """Send JSON data."""
+        task = self.send_text_impl(obj.model_dump_json())
+        self.notify_event_sent_listeners(obj)
+        return task
 
-    def notify_event_sent_listeners(self, data: Event) -> None:
-        """Notify all event sent listeners."""
-        for callback in self.on_event_sent_callbacks:
-            callback(data)
+    def on_event_received(self, callback: Callable[[Event], None]) -> None:
+        """Add an event received listener."""
+        self.on_event_received_callbacks.add(callback)
 
     def on_event_sent(self, callback: Callable[[Event], None]) -> None:
         """Add an event sent listener."""
         self.on_event_sent_callbacks.add(callback)
+
+    def notify_msg_received_listeners(self, data: str | bytes) -> None:
+        """Received a message from the transport."""
+        evt = self.parse_event(data)
+        self.notify_event_received_listeners(evt)
+
+    def notify_msg_sent_listeners(self, data: str | bytes) -> None:
+        """Sent a message to the transport."""
+        evt = self.parse_event(data)
+        self.notify_event_sent_listeners(evt)
 
     def notify_event_received_listeners(self, data: Event) -> None:
         """Notify all event received listeners."""
         for callback in self.on_event_received_callbacks:
             callback(data)
 
-    def on_event_received(self, callback: Callable[[Event], None]) -> None:
-        """Add an event received listener."""
-        self.on_event_received_callbacks.add(callback)
+    def notify_event_sent_listeners(self, data: Event) -> None:
+        """Notify all event sent listeners."""
+        for callback in self.on_event_sent_callbacks:
+            callback(data)
 
     def parse_event(self, data: str | bytes) -> Event:
         """Parse the event from the data."""
         if isinstance(data, str):
             return parse_text_event(data)
         elif isinstance(data, bytes):
-            return parse_bytes_event(data, is_input=True)
+            return parse_bytes_event(
+                data,
+                parse_media_uuid=self.parse_media_uuid,
+            )
         else:
-            raise ValueError(f"Unknown message type: {type(data)}")
+            raise ChatApiTransportError(f"Unknown message type: {type(data)}")
 
-    def msg_received(self, data: str | bytes) -> None:
-        """Received a message from the transport."""
-        evt = self.parse_event(data)
-        self.event_received(evt)
-
-    def msg_sent(self, data: str | bytes) -> None:
-        """Sent a message to the transport."""
-        evt = self.parse_event(data)
-        self.event_sent(evt)
-
-    def event_received(self, evt: Event) -> None:
-        """Received an event from the transport."""
-        self.notify_event_received_listeners(evt)
-
-    def event_sent(self, evt: Event) -> None:
-        """Sent an event to the transport."""
-        self.notify_event_sent_listeners(evt)
-
-    def __del__(self) -> None:
-        """Clear all event listeners."""
+    @abstractmethod
+    def close(self) -> Optional[asyncio.Task[None]]:
+        """Release all resources, including event listeners."""
         self.on_event_received_callbacks.clear()
         self.on_event_sent_callbacks.clear()
+        return None
 
-
-class InMemoryTransport(Transport):
-    """In-memory transport useful for tests/examples."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._text_queue: list[str] = []
-        self._bytes_queue: list[bytes] = []
-
-    def _send_text(self, data: str) -> None:
-        self._text_queue.append(data)
-
-    def _send_bytes(self, data: bytes) -> None:
-        self._bytes_queue.append(data)
+    def __del__(self) -> None:
+        """Release all resources, including event listeners."""
+        self.close()

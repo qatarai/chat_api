@@ -3,7 +3,7 @@
 Requires the `websockets` extra.
 
 This transport wraps a connected `websockets` protocol object and:
-- Starts a receive loop that forwards inbound frames to `Transport.msg_received`
+- Starts a receive loop that forwards inbound frames to `Transport.notify_msg_received_listeners`
 - Schedules outbound text/bytes via the event loop
 """
 
@@ -14,11 +14,11 @@ from typing import Optional
 
 from websockets.asyncio.connection import Connection
 
+from ..asyncio import AsyncioMixin
 from .base import Transport
-from .scheduling import AsyncioSchedulingMixin
 
 
-class WebsocketsTransport(Transport, AsyncioSchedulingMixin):
+class WebsocketsTransport(Transport, AsyncioMixin):
     """Transport backed by a `websockets` connection.
 
     Schedules async send operations and runs a background receive loop to
@@ -35,15 +35,14 @@ class WebsocketsTransport(Transport, AsyncioSchedulingMixin):
         websocket: Connection,
         loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
-        """Initialize the transport."""
         super().__init__()
         self._websocket = websocket
         self._loop = loop
         self._recv_task: Optional[asyncio.Task[None]] = None
 
-        self.start()
+        self.recv_loop()
 
-    def start(self) -> None:
+    def recv_loop(self) -> None:
         """Start the background receive loop.
 
         Creates an asyncio task on the target loop that reads messages from
@@ -51,29 +50,23 @@ class WebsocketsTransport(Transport, AsyncioSchedulingMixin):
         """
 
         async def _recv_loop() -> None:
-            try:
-                async for message in self._websocket:  # str or bytes
-                    self.msg_received(message)
-            finally:
-                # Nothing to clean specifically here
-                pass
+            async for message in self._websocket:  # str or bytes
+                self.notify_msg_received_listeners(message)
 
-        loop = self._ensure_loop()
+        loop = self.ensure_loop()
         self._recv_task = loop.create_task(_recv_loop())
 
-    def close(self) -> None:
-        """Cancel the background receive loop.
+    def send_text_impl(self, data: str) -> Optional[asyncio.Task[None]]:
+        return self.run_coroutine(self._websocket.send(data))
 
-        Note: this does not close the underlying websocket connection.
-        """
+    def send_bytes_impl(self, data: bytes) -> Optional[asyncio.Task[None]]:
+        return self.run_coroutine(self._websocket.send(data))
+
+    def close(self) -> None:
+        """Close the transport."""
         if self._recv_task and not self._recv_task.done():
             self._recv_task.cancel()
 
-    def _send_data(self, data: str | bytes) -> None:
-        self._schedule_send(self._websocket.send(data))
+        self.run_coroutine(self._websocket.close())
 
-    def _send_text(self, data: str) -> None:
-        self._send_data(data)
-
-    def _send_bytes(self, data: bytes) -> None:
-        self._send_data(data)
+        super().close()
