@@ -56,6 +56,7 @@ sequenceDiagram
 
     Note over C,S: Audio/Video bytes stream in chunks.
     Note over C,S: Text may stream via repeated OutputText events.
+    Note over C,S: Transcriptions may stream via repeated OutputTranscription events.
     Note over C,S: FunctionCall does not stream.
     Note over C,S: Legend<br/>blue = Client to Server<br/>green = Server to Client
 
@@ -70,10 +71,19 @@ sequenceDiagram
     end
 
     alt input_mode = Audio
-        loop Input audio chunks
-            rect rgba(51,136,255,0.18)
-                Note over C,S: Input (Audio)<br/>- bytes: audio
-                C-->>S: Audio Chunk
+        par Input audio chunks
+            loop Input audio chunks
+                rect rgba(51,136,255,0.18)
+                    Note over C,S: Input (Audio)<br/>- bytes: audio
+                    C-->>S: Audio Chunk
+                end
+            end
+        and Transcriptions (partial/final)
+            loop Output transcription events
+                rect rgba(76,175,80,0.18)
+                    Note over C,S: OutputTranscription<br/>- event_type: EventType.OUTPUT_TRANSCRIPTION<br/>- transcription: Transcription
+                    S-->>C: OutputTranscription
+                end
             end
         end
         alt silence_duration = -1 (device detection)
