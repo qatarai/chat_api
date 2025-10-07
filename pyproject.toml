@@ -19,7 +19,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-dynamic = ["dependencies"]
+dynamic = ["dependencies", "optional-dependencies"]
 
 [tool.setuptools]
 packages = { find = { where = ["src"] } }
@@ -29,12 +29,4 @@ packages = { find = { where = ["src"] } }
 
 [tool.setuptools.dynamic]
 dependencies = { file = ["requirements.txt"] }
-
-[project.optional-dependencies]
-# Delegated to separate requirement files
-websockets = ["-r requirements/requirements-websockets.txt"]
-fastapi = ["-r requirements/requirements-fastapi.txt"]
-
-# [project.urls]
-# Homepage = "https://example.com/chat_api"
-# Repository = "https://example.com/chat_api/repo"
+optional-dependencies = { websockets = { file = "requirements/requirements-websockets.txt" }, fastapi = { file = "requirements/requirements-fastapi.txt" } }
