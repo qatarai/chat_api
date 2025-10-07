@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 from asyncio import Task
 from typing import Callable, Optional, Tuple
 
 from ..clients.base import Base
-from ..enums import InterruptType
 from ..models import (
     ID,
     Config,
@@ -62,18 +60,11 @@ class Client(Base):
         # Set the parse media uuid flag to True
         self._transport.set_parse_media_uuid(True)
 
-        # Keep track of finish status
-        self._finished = asyncio.Event()
-
         # Register callback for incoming events
         self._transport.on_event_received(self.event_received_callback)
 
         # Send config
         self._transport.send_event(self._config)
-
-    async def join(self) -> None:
-        """Wait for the client to finish sending all queued actions/events."""
-        await self._finished.wait()
 
     def event_received_callback(self, evt: Event) -> None:
         """Handle an incoming event."""
@@ -86,11 +77,11 @@ class Client(Base):
             self._request_state.end_input()
 
         elif isinstance(evt, OutputEnd):
-            self._finished.set()
+            self.close()
 
         elif isinstance(evt, Interrupt):
             self._request_state.interrupt()
-            self._finished.set()
+            self.close()
 
         if isinstance(
             evt,
@@ -136,20 +127,3 @@ class Client(Base):
             send=send,
             end=end,
         )
-
-    def end_input(self) -> Tuple[InputEnd, Optional[Task[None]]]:
-        """Send InputEnd."""
-        self._request_state.end_input()
-        evt = InputEnd()
-        task = self._transport.send_event(evt)
-        return evt, task
-
-    def interrupt(
-        self,
-        interrupt_type: InterruptType = InterruptType.USER,
-    ) -> Tuple[Interrupt, Optional[Task[None]]]:
-        """Send Interrupt."""
-        self._request_state.interrupt()
-        evt = Interrupt(interrupt_type=interrupt_type)
-        task = self._transport.send_event(evt)
-        return evt, task

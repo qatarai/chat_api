@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from asyncio import Task
 from typing import Any, Callable, Dict, Literal, Optional, Tuple
 
@@ -65,15 +64,8 @@ class Server(Base):
 
         self.event_callback = event_callback
 
-        # Keep track of finish status
-        self._finished = asyncio.Event()
-
         # Register callback for incoming events
         self._transport.on_event_received(self.event_received_callback)
-
-    async def join(self) -> None:
-        """Wait for the server to finish sending all queued actions/events."""
-        await self._finished.wait()
 
     def event_received_callback(self, evt: Event) -> None:
         """Handle a client->server event."""
@@ -85,7 +77,7 @@ class Server(Base):
 
         elif isinstance(evt, Interrupt):
             self._request_state.interrupt()
-            self._finished.set()
+            self.close()
 
         if isinstance(
             evt, (Config, InputText, InputMedia, InputEnd, Interrupt)
@@ -302,8 +294,8 @@ class Server(Base):
         task = self._transport.send_event(evt)
 
         if task:
-            task.add_done_callback(lambda _: self._finished.set())
+            task.add_done_callback(self.close)
         else:
-            self._finished.set()
+            self.close()
 
         return evt, task

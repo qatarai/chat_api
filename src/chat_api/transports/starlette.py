@@ -70,9 +70,19 @@ class StarletteTransport(Transport, AsyncioMixin):
         return self.run_coroutine(self._websocket.send_bytes(data))
 
     def close(self) -> Optional[asyncio.Task[None]]:
-        if self._recv_task and not self._recv_task.done():
-            self._recv_task.cancel()
+        """Close the transport."""
+
+        super_close = super().close
+
+        def _close(task: asyncio.Task[None]) -> None:
+            del task
+
+            if self._recv_task and not self._recv_task.done():
+                self._recv_task.cancel()
+
+            super_close()
 
         task = self.run_coroutine(self._websocket.close())
-        super().close()
+        task.add_done_callback(_close)
+
         return task

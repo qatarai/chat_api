@@ -62,11 +62,20 @@ class WebsocketsTransport(Transport, AsyncioMixin):
     def send_bytes_impl(self, data: bytes) -> Optional[asyncio.Task[None]]:
         return self.run_coroutine(self._websocket.send(data))
 
-    def close(self) -> None:
+    def close(self) -> Optional[asyncio.Task[None]]:
         """Close the transport."""
-        if self._recv_task and not self._recv_task.done():
-            self._recv_task.cancel()
 
-        self.run_coroutine(self._websocket.close())
+        super_close = super().close
 
-        super().close()
+        def _close(task: asyncio.Task[None]) -> None:
+            del task
+
+            if self._recv_task and not self._recv_task.done():
+                self._recv_task.cancel()
+
+            super_close()
+
+        task = self.run_coroutine(self._websocket.close())
+        task.add_done_callback(_close)
+
+        return task

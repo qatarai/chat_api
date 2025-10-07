@@ -8,7 +8,7 @@ payloads over their respective transports.
 from __future__ import annotations
 
 from abc import ABC
-from asyncio import Task
+from asyncio import Event, Task
 from typing import Optional, Tuple
 
 from ..enums import InterruptType
@@ -37,6 +37,11 @@ class Base(ABC):
         """
         self._request_state = request_state
         self._transport = transport
+        self._finished = Event()
+
+    async def join(self) -> None:
+        """Wait for the client to finish sending all queued actions/events."""
+        await self._finished.wait()
 
     @staticmethod
     def new_uuid() -> ID:
@@ -63,3 +68,20 @@ class Base(ABC):
         evt = Interrupt(interrupt_type=interrupt_type)
         task = self._transport.send_event(evt)
         return evt, task
+
+    def close(self, task: Optional[Task[None]] = None) -> Optional[Task[None]]:
+        """Close the client."""
+        del task
+
+        def _close(task: Optional[Task[None]] = None) -> None:
+            if task:
+                del task
+
+            self._finished.set()
+
+        task = self._transport.close()
+
+        if task:
+            task.add_done_callback(_close)
+
+        return task
