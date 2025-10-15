@@ -103,12 +103,51 @@ class OutputStage(Event):
 class OutputContent(Event):
     """Server->Client content declaration belonging to a stage."""
 
-    event_type: EventType = Field(
-        default=EventType.OUTPUT_CONTENT, frozen=True
-    )
     id: ID
     type: ContentType
     stage_id: ID
+
+
+class OutputTextContent(OutputContent):
+    """Server->Client text content declaration belonging to a stage."""
+
+    event_type: EventType = Field(
+        default=EventType.OUTPUT_TEXT_CONTENT, frozen=True
+    )
+    type: ContentType = Field(default=ContentType.TEXT, frozen=True)
+
+
+class OutputFunctionCallContent(OutputContent):
+    """Server->Client function call content declaration belonging to a stage."""
+
+    event_type: EventType = Field(
+        default=EventType.OUTPUT_FUNCTION_CALL_CONTENT, frozen=True
+    )
+    type: ContentType = Field(default=ContentType.FUNCTION_CALL, frozen=True)
+
+
+class OutputAudioContent(OutputContent):
+    """Server->Client audio content declaration belonging to a stage."""
+
+    event_type: EventType = Field(
+        default=EventType.OUTPUT_AUDIO_CONTENT, frozen=True
+    )
+    type: ContentType = Field(default=ContentType.AUDIO, frozen=True)
+    nchannels: int
+    sample_rate: int
+    sample_width: int
+
+
+class OutputVideoContent(OutputContent):
+    """Server->Client video content declaration belonging to a stage."""
+
+    event_type: EventType = Field(
+        default=EventType.OUTPUT_VIDEO_CONTENT, frozen=True
+    )
+    type: ContentType = Field(default=ContentType.VIDEO, frozen=True)
+    fps: int
+    width: int
+    height: int
 
 
 class OutputContentAddition(Event):

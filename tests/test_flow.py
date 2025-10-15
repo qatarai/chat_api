@@ -8,7 +8,6 @@ from websockets.asyncio.client import connect
 from websockets.asyncio.server import serve
 
 from chat_api import Client, Event, Server
-from chat_api.enums import ContentType
 from chat_api.models import InputEnd, ServerReady
 from chat_api.transports import InMemoryTransport, Transport
 from chat_api.transports.websockets import WebsocketsTransport
@@ -83,8 +82,7 @@ async def test_complete_flow(transport_type: TransportType):
                 title="stage 1",
                 description="stage 1",
             )
-            content, _ = s2c.content(
-                content_type=ContentType.TEXT,
+            content, _ = s2c.text_content(
                 stage_id=stage.id,
             )
 

@@ -3,14 +3,22 @@
 Run this script, then run the client script to test the chat API.
 """
 
+import wave
 from pathlib import Path
 from typing import Optional
 
 import fastapi
 import uvicorn
+from cv2 import (
+    CAP_PROP_FPS,
+    CAP_PROP_FRAME_HEIGHT,
+    CAP_PROP_FRAME_WIDTH,
+    VideoCapture,
+    imencode,
+)
 
 from chat_api.clients.server import Server
-from chat_api.enums import ContentType, InputMode
+from chat_api.enums import InputMode
 from chat_api.models import (
     Config,
     Event,
@@ -60,34 +68,60 @@ async def websocket_endpoint(websocket: fastapi.WebSocket) -> None:
         elif isinstance(evt, InputEnd):
             input_ended = True
 
-            # Stage 1: text outputs
+            # Stage 1: Text outputs
             stage1, _ = s2c.stage(title="Stage 1", description="Text outputs")
-            for i in range(2):
-                stream, _ = s2c.text_stream(stage_id=stage1.id)
-                stream.send("Hello")
-                stream.send(f", world! {i}\n")
-                stream.end()
-            for i in range(2):
-                stream, _ = s2c.text_stream(stage_id=stage1.id)
-                stream.send("Content 2")
-                stream.send(f" part {i}\n")
-                stream.end()
+            stream, _ = s2c.text_stream(stage_id=stage1.id)
+            stream.send("Hello")
+            stream.send(", world!")
+            stream.end()
+            stream, _ = s2c.text_stream(stage_id=stage1.id)
+            stream.send("This is a fixed text stream.")
+            stream.send(" The input is not considered")
+            stream.end()
 
-            # Stage 2: media outputs
-            stage2, _ = s2c.stage(title="Stage 2", description="Media outputs")
-            image_path = Path(__file__).parent / "three.png"
-            stream2, _ = s2c.media_stream(
-                content_type=ContentType.AUDIO,
-                stage_id=stage2.id,
+            # Stage 2: Audio outputs
+            stage2, _ = s2c.stage(title="Stage 2", description="Audio outputs")
+            image_path = Path(__file__).parent / "mario.wav"
+            with wave.open(str(image_path), "rb") as reader:
+                nchannels = reader.getnchannels()
+                sample_rate = reader.getframerate()
+                sample_width = reader.getsampwidth()
+                stream1, _ = s2c.text_stream(stage_id=stage2.id)
+                stream1.send(f"The stream's sample rate is {sample_rate} Hz.")
+                stream1.send(
+                    f" The sample format is pcm{sample_width * 8}bits."
+                )
+                stream1.end()
+                stream2, _ = s2c.audio_stream(
+                    nchannels=nchannels,
+                    sample_rate=sample_rate,
+                    sample_width=sample_width,
+                    stage_id=stage2.id,
+                )
+                while frames := reader.readframes(16000):
+                    stream2.send(frames)
+                stream2.end()
+
+            # Stage 3: Video outputs
+            stage3, _ = s2c.stage(title="Stage 3", description="Video outputs")
+            video_path = Path(__file__).parent / "marcello.mp4"
+            video = VideoCapture(str(video_path))
+            stream3, _ = s2c.video_stream(
+                fps=int(video.get(CAP_PROP_FPS)),
+                width=int(video.get(CAP_PROP_FRAME_WIDTH)),
+                height=int(video.get(CAP_PROP_FRAME_HEIGHT)),
+                stage_id=stage3.id,
             )
-            chunk_size = 1024
-            with image_path.open("rb") as f:
-                while True:
-                    chunk = f.read(chunk_size)
-                    if not chunk:
-                        break
-                    stream2.send(chunk)
-            stream2.end()
+            while True:
+                ret, frame = video.read()
+                if not ret:
+                    break
+                ret, frame_encoded = imencode(".jpg", frame)
+                if not ret:
+                    break
+                stream3.send(frame_encoded.tobytes())
+            stream3.end()
+            video.release()
 
             # End of output
             s2c.end()

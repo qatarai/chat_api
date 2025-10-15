@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from asyncio import Task
-from typing import Any, Callable, Dict, Literal, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
-from ..enums import ContentType
 from ..models import (
     ID,
     Config,
@@ -14,14 +13,18 @@ from ..models import (
     InputMedia,
     InputText,
     Interrupt,
+    OutputAudioContent,
     OutputContent,
     OutputContentAddition,
     OutputEnd,
     OutputFunctionCall,
+    OutputFunctionCallContent,
     OutputMedia,
     OutputStage,
     OutputText,
+    OutputTextContent,
     OutputTranscription,
+    OutputVideoContent,
     ServerReady,
     Transcription,
 )
@@ -96,7 +99,8 @@ class Server(Base):
             request_id: Optional existing request id. If not provided a new one is generated.
 
         Returns:
-            Tuple[ServerReady, Optional[Task[None]]]: The ready event sent and the task for sending it.
+            Tuple[ServerReady, Optional[Task[None]]]: The ready event
+                sent and the task for sending it.
         """
         config.chat_id = config.chat_id or self.new_uuid()
         request_id = request_id or self.new_uuid()
@@ -138,27 +142,85 @@ class Server(Base):
         task = self._transport.send_event(evt)
         return evt, task
 
-    def content(
+    def text_content(
         self,
-        content_type: ContentType,
         stage_id: ID,
         content_id: Optional[ID] = None,
     ) -> Tuple[OutputContent, Optional[Task[None]]]:
-        """Send an OutputContent event.
-
-        Despite it NOT being the typical behavior of this class,
-        if the content was already sent, the client won't raise an error.
-
-        In the case that the content was not already sent, it will be sent.
-
-        Returns:
-            Tuple[OutputContent, Optional[Task[None]]]: The content sent and the task for sending it.
-        """
+        """Send an OutputTextContent event."""
         content_id = content_id or self.new_uuid()
-        evt = OutputContent(
+        evt = OutputTextContent(
             id=content_id,
-            type=content_type,
             stage_id=stage_id,
+        )
+
+        task = None
+        if not self._request_state.has_content(evt):
+            self._request_state.content(evt)
+            task = self._transport.send_event(evt)
+
+        return evt, task
+
+    def function_call_content(
+        self,
+        stage_id: ID,
+        content_id: Optional[ID] = None,
+    ) -> Tuple[OutputContent, Optional[Task[None]]]:
+        """Send an OutputFunctionCallContent event."""
+        content_id = content_id or self.new_uuid()
+        evt = OutputFunctionCallContent(
+            id=content_id,
+            stage_id=stage_id,
+        )
+
+        task = None
+        if not self._request_state.has_content(evt):
+            self._request_state.content(evt)
+            task = self._transport.send_event(evt)
+
+        return evt, task
+
+    def audio_content(
+        self,
+        stage_id: ID,
+        nchannels: int,
+        sample_rate: int,
+        sample_width: int,
+        content_id: Optional[ID] = None,
+    ) -> Tuple[OutputContent, Optional[Task[None]]]:
+        """Send an OutputAudioContent event."""
+        content_id = content_id or self.new_uuid()
+        evt = OutputAudioContent(
+            id=content_id,
+            stage_id=stage_id,
+            nchannels=nchannels,
+            sample_rate=sample_rate,
+            sample_width=sample_width,
+        )
+
+        task = None
+        if not self._request_state.has_content(evt):
+            self._request_state.content(evt)
+            task = self._transport.send_event(evt)
+
+        return evt, task
+
+    def video_content(
+        self,
+        stage_id: ID,
+        fps: int,
+        width: int,
+        height: int,
+        content_id: Optional[ID] = None,
+    ) -> Tuple[OutputContent, Optional[Task[None]]]:
+        """Send an OutputVideoContent event."""
+        content_id = content_id or self.new_uuid()
+        evt = OutputVideoContent(
+            id=content_id,
+            stage_id=stage_id,
+            fps=fps,
+            width=width,
+            height=height,
         )
 
         task = None
@@ -189,8 +251,7 @@ class Server(Base):
         content_id: Optional[ID] = None,
     ) -> Tuple[OutputFunctionCall, Optional[Task[None]]]:
         """Send an OutputFunctionCall event."""
-        content_evt, task = self.content(
-            content_type=ContentType.FUNCTION_CALL,
+        content_evt, task = self.text_content(
             stage_id=stage_id,
             content_id=content_id,
         )
@@ -219,8 +280,7 @@ class Server(Base):
             Tuple[SendStreamHandle[str], Optional[Task[None]]]: A handle with send
                 and end methods and the task for sending the content.
         """
-        content_evt, task = self.content(
-            content_type=ContentType.TEXT,
+        content_evt, task = self.text_content(
             stage_id=stage_id,
             content_id=content_id,
         )
@@ -244,47 +304,83 @@ class Server(Base):
         )
         return stream_handle, task
 
-    def media_stream(
+    def audio_stream(
         self,
         *,
-        content_type: Literal[ContentType.AUDIO, ContentType.VIDEO],
         stage_id: ID,
+        nchannels: Optional[int],
+        sample_rate: Optional[int],
+        sample_width: Optional[int],
         content_id: Optional[ID] = None,
     ) -> Tuple[SendStreamHandle[bytes], Optional[Task[None]]]:
-        """Start a binary media stream (audio or video).
+        """Start a binary audio stream.
 
         Args:
-            content_type: Must be AUDIO or VIDEO.
             stage_id: The target stage id.
+            nchannels: Number of audio channels.
+            sample_rate: Audio sample rate.
+            sample_width: Sample width in bytes.
             content_id: Optional pre-defined content id.
 
         Returns:
             Tuple[SendStreamHandle[bytes], Optional[Task[None]]]: A handle with send
                 and end methods and the task for sending the content.
         """
-        content_evt, task = self.content(
-            content_type=content_type,
+        if content_id is None and (
+            nchannels is None or sample_rate is None or sample_width is None
+        ):
+            raise ValueError(
+                "When no content id is provided, nchannels, sample_rate and"
+                " sample_width must be provided"
+            )
+
+        content_evt, task = self.audio_content(
             stage_id=stage_id,
+            nchannels=nchannels,
+            sample_rate=sample_rate,
+            sample_width=sample_width,
             content_id=content_id,
         )
+        stream_handle = self._prepare_media_stream(content_evt)
+        return stream_handle, task
 
-        def send(data: bytes) -> Tuple[OutputMedia, Optional[Task[None]]]:
-            evt = OutputMedia(
-                content_id=content_evt.id,
-                data=data,
+    def video_stream(
+        self,
+        *,
+        stage_id: ID,
+        fps: Optional[int],
+        width: Optional[int],
+        height: Optional[int],
+        content_id: Optional[ID] = None,
+    ) -> Tuple[SendStreamHandle[bytes], Optional[Task[None]]]:
+        """Start a binary video stream.
+
+        Args:
+            stage_id: The target stage id.
+            fps: Video frames per second.
+            width: Frame width.
+            height: Frame height.
+            content_id: Optional pre-defined content id.
+
+        Returns:
+            Tuple[SendStreamHandle[bytes], Optional[Task[None]]]: A handle with send
+                and end methods and the task for sending the content.
+        """
+        if content_id is None and (
+            fps is None or width is None or height is None
+        ):
+            raise ValueError(
+                "When no content id is provided, fps, width and height must be provided"
             )
-            self._request_state.media(evt)
-            task = self._transport.send_bytes(evt.get_bytes())
-            return evt, task
 
-        def end() -> Tuple[Optional[OutputEnd], Optional[Task[None]]]:
-            return None, None
-
-        stream_handle = SendStreamHandle[bytes](
-            content_id=content_evt.id,
-            send=send,
-            end=end,
+        content_evt, task = self.video_content(
+            stage_id=stage_id,
+            fps=fps,
+            width=width,
+            height=height,
+            content_id=content_id,
         )
+        stream_handle = self._prepare_media_stream(content_evt)
         return stream_handle, task
 
     def end(self) -> Tuple[OutputEnd, Optional[Task[None]]]:
@@ -299,3 +395,28 @@ class Server(Base):
             self.close()
 
         return evt, task
+
+    def _prepare_media_stream(
+        self,
+        content: OutputContent,
+    ) -> SendStreamHandle[bytes]:
+        """Prepare a media stream."""
+
+        def send(data: bytes) -> Tuple[OutputMedia, Optional[Task[None]]]:
+            evt = OutputMedia(
+                content_id=content.id,
+                data=data,
+            )
+            self._request_state.media(evt)
+            task = self._transport.send_bytes(evt.get_bytes())
+            return evt, task
+
+        def end() -> Tuple[Optional[OutputEnd], Optional[Task[None]]]:
+            return None, None
+
+        stream_handle = SendStreamHandle[bytes](
+            content_id=content.id,
+            send=send,
+            end=end,
+        )
+        return stream_handle

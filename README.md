@@ -17,6 +17,7 @@ pip install --upgrade setuptools
 
 ```bash
 pip install -e ".[websockets,fastapi]"
+pip install -r requirements/dev.txt
 ```
 
 ### Run tests (manually)
@@ -120,8 +121,8 @@ sequenceDiagram
         end
 
         rect rgba(76,175,80,0.18)
-            Note over C,S: OutputContent<br/>- event_type: EventType.OUTPUT_CONTENT<br/>- id: uuid<br/>- type: ContentType<br/>- stage_id: uuid
-            S-->>C: OutputContent
+            Note over C,S: Output*Content<br/>- event_type: EventType.OUTPUT_TEXT_CONTENT | OUTPUT_FUNCTION_CALL_CONTENT | OUTPUT_AUDIO_CONTENT | OUTPUT_VIDEO_CONTENT<br/>- id: uuid<br/>- type: ContentType<br/>- stage_id: uuid<br/>- audio: nchannels, sample_rate, sample_width (only for OUTPUT_AUDIO_CONTENT)<br/>- video: fps, width, height (only for OUTPUT_VIDEO_CONTENT)
+            S-->>C: Output*Content
         end
 
         rect rgba(76,175,80,0.18)
@@ -132,15 +133,15 @@ sequenceDiagram
         alt type = ContentType.Audio
             loop Audio data chunks
                 rect rgba(76,175,80,0.18)
-                    Note over C,S: Data (Audio)<br/>Info: each chunk prefixed with uuid (16 bytes)<br/>- uuid: uuid (16 bytes)<br/>- bytes: audio
-                    S-->>C: Audio Chunk
+                    Note over C,S: OutputMedia<br/>Info: each chunk prefixed with content_id (16 bytes)<br/>- event_type: EventType.OUTPUT_MEDIA<br/>- content_id: uuid (16 bytes)<br/>- bytes: audio
+                    S-->>C: Media Chunk
                 end
             end
         else type = ContentType.Video
             loop Video data chunks
                 rect rgba(76,175,80,0.18)
-                    Note over C,S: Data (Video)<br/>Info: each chunk prefixed with uuid (16 bytes)<br/>- uuid: uuid (16 bytes)<br/>- bytes: video
-                    S-->>C: Video Chunk
+                    Note over C,S: OutputMedia<br/>Info: each chunk prefixed with content_id (16 bytes)<br/>- event_type: EventType.OUTPUT_MEDIA<br/>- content_id: uuid (16 bytes)<br/>- bytes: video
+                    S-->>C: Media Chunk
                 end
             end
         else type = ContentType.Text
@@ -212,24 +213,45 @@ sequenceDiagram
   - title: string
   - description: string
 
-- OutputContent
-  - event_type: EventType.OUTPUT_CONTENT (int)
+- OutputTextContent
+  - event_type: EventType.OUTPUT_TEXT_CONTENT (int)
   - id: uuid (string)
-  - type: ContentType (int)
+  - type: ContentType.TEXT (int)
   - stage_id: uuid (string)
+
+- OutputFunctionCallContent
+  - event_type: EventType.OUTPUT_FUNCTION_CALL_CONTENT (int)
+  - id: uuid (string)
+  - type: ContentType.FUNCTION_CALL (int)
+  - stage_id: uuid (string)
+
+- OutputAudioContent
+  - event_type: EventType.OUTPUT_AUDIO_CONTENT (int)
+  - id: uuid (string)
+  - type: ContentType.AUDIO (int)
+  - stage_id: uuid (string)
+  - nchannels: int
+  - sample_rate: int
+  - sample_width: int
+
+- OutputVideoContent
+  - event_type: EventType.OUTPUT_VIDEO_CONTENT (int)
+  - id: uuid (string)
+  - type: ContentType.VIDEO (int)
+  - stage_id: uuid (string)
+  - fps: int
+  - width: int
+  - height: int
 
 - OutputContentAddition
   - event_type: EventType.OUTPUT_CONTENT_ADDITION (int)
   - content_id: uuid (string)
   - …: additional metadata (implementation-defined)
 
-- Data (Audio)
-  - uuid: uuid (16 bytes; per-content stream chunk identifier)
-  - bytes: audio (binary, streamed)
-
-- Data (Video)
-  - uuid: uuid (16 bytes; per-content stream chunk identifier)
-  - bytes: video (binary, streamed)
+- OutputMedia (streamed; multiple events allowed)
+  - event_type: EventType.OUTPUT_MEDIA (int)
+  - content_id: uuid (string; 16 bytes when binary-prefixed)
+  - bytes: media (binary, streamed)
 
 - OutputText (streamed; multiple events allowed)
   - event_type: EventType.OUTPUT_TEXT (int)
@@ -265,12 +287,15 @@ sequenceDiagram
   - 5: SERVER_READY
   - 6: OUTPUT_TRANSCRIPTION
   - 7: OUTPUT_STAGE
-  - 8: OUTPUT_CONTENT
-  - 9: OUTPUT_CONTENT_ADDITION
-  - 10: OUTPUT_TEXT
-  - 11: OUTPUT_MEDIA
-  - 12: OUTPUT_FUNCTION_CALL
-  - 13: OUTPUT_END
+  - 8: OUTPUT_TEXT_CONTENT
+  - 9: OUTPUT_FUNCTION_CALL_CONTENT
+  - 10: OUTPUT_AUDIO_CONTENT
+  - 11: OUTPUT_VIDEO_CONTENT
+  - 12: OUTPUT_CONTENT_ADDITION
+  - 13: OUTPUT_TEXT
+  - 14: OUTPUT_MEDIA
+  - 15: OUTPUT_FUNCTION_CALL
+  - 16: OUTPUT_END
 
 - InterruptType
   - 0: USER

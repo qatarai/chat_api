@@ -6,11 +6,14 @@ then run this script to send a simple text input and print received outputs.
 
 import argparse
 import asyncio
+import wave
 
+import numpy as np
+from cv2 import IMREAD_COLOR, VideoWriter, VideoWriter_fourcc, imdecode
 from websockets.asyncio.client import connect
 
 from chat_api import Client, Event
-from chat_api.enums import ContentType, InputMode
+from chat_api.enums import ContentType, EventType, InputMode
 from chat_api.models import (
     Config,
     OutputContent,
@@ -50,12 +53,14 @@ async def run_client2(ws_url: str) -> None:
     async with connect(ws_url) as websocket:
         tx = WebsocketsTransport(websocket)
         # Buffers for received media keyed by content_id (as string)
-        media_buffers: dict[str, bytearray] = {}
+        audio_buffers: dict[str, bytearray] = {}
+        video_buffers: dict[str, list[bytes]] = {}
         # Track content types to name files meaningfully
-        content_types: dict[str, ContentType] = {}
+        contents: dict[str, OutputContent] = {}
 
         async def _on_output(c2s: Client, event: Event) -> None:
-            print(f"Received event: {event}")
+            if event.event_type not in [EventType.OUTPUT_MEDIA]:
+                print(f"Received event: {event}")
 
             if isinstance(event, ServerReady):
                 stream = c2s.media_stream()
@@ -68,43 +73,50 @@ async def run_client2(ws_url: str) -> None:
 
             # Track content metadata
             if isinstance(event, OutputContent):
-                content_types[str(event.id)] = event.type
+                contents[str(event.id)] = event
 
             # Buffer media chunks by content
             if isinstance(event, OutputMedia):
                 key = str(event.content_id)
-                buf = media_buffers.setdefault(key, bytearray())
-                buf.extend(event.data)
+                content = contents[key]
+                if content.type == ContentType.AUDIO:
+                    buf_audio = audio_buffers.setdefault(key, bytearray())
+                    buf_audio.extend(event.data)
+                elif content.type == ContentType.VIDEO:
+                    buf_video = video_buffers.setdefault(key, [])
+                    buf_video.append(event.data)
 
             # On OutputEnd, write all buffered media to files
             if isinstance(event, OutputEnd):
-                for content_id_str, buf in media_buffers.items():
-                    ctype = content_types.get(content_id_str)
-                    # Use content type name in filename if available
-                    type_name = (
-                        "audio"
-                        if ctype == ContentType.AUDIO
-                        else (
-                            "video"
-                            if ctype == ContentType.VIDEO
-                            else (
-                                "text"
-                                if ctype == ContentType.TEXT
-                                else (
-                                    "function"
-                                    if ctype == ContentType.FUNCTION_CALL
-                                    else "media"
-                                )
-                            )
-                        )
+                for content_id_str, buf in audio_buffers.items():
+                    content = contents[content_id_str]
+                    filename = f"received_{content_id_str}.wav"
+                    with wave.open(filename, "wb") as f:
+                        f.setnchannels(content.nchannels)
+                        f.setsampwidth(content.sample_width)
+                        f.setframerate(content.sample_rate)
+                        f.writeframes(buf)
+                    print(f"Saved audio to {filename}")
+                audio_buffers.clear()
+                for content_id_str, buf in video_buffers.items():
+                    content = contents[content_id_str]
+                    filename = f"received_{content_id_str}.mp4"
+                    video = VideoWriter(
+                        filename,
+                        VideoWriter_fourcc(*"mp4v"),
+                        content.fps,
+                        (content.width, content.height),
                     )
-                    filename = f"received_{type_name}_{content_id_str}.bin"
-                    with open(filename, "wb") as f:
-                        f.write(buf)
+                    for frame in buf:
+                        frame_np = np.frombuffer(frame, dtype=np.uint8)
+                        frame_decoded = imdecode(frame_np, IMREAD_COLOR)
+                        if frame_decoded is None:
+                            continue
+                        video.write(frame_decoded)
+                    video.release()
                     print(f"Saved media to {filename}")
-
-                media_buffers.clear()
-                content_types.clear()
+                video_buffers.clear()
+                contents.clear()
 
         def on_output(c2s: Client, event: Event) -> None:
             asyncio.create_task(_on_output(c2s, event))

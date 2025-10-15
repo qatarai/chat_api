@@ -1,0 +1,4 @@
+numpy
+opencv-python
+-r websockets.txt
+-r fastapi.txt
