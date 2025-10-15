@@ -29,4 +29,4 @@ packages = { find = { where = ["src"] } }
 
 [tool.setuptools.dynamic]
 dependencies = { file = ["requirements.txt"] }
-optional-dependencies = { websockets = { file = "requirements/websockets.txt" }, fastapi = { file = "requirements/fastapi.txt" }, dev = { file = "requirements/dev.txt" } }
+optional-dependencies = { websockets = { file = "requirements/websockets.txt" }, fastapi = { file = "requirements/fastapi.txt" } }
