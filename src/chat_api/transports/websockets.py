@@ -10,9 +10,10 @@ This transport wraps a connected `websockets` protocol object and:
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+from typing import Any, Coroutine, Optional
 
 from websockets.asyncio.connection import Connection
+from websockets.protocol import State as WebsocketsState
 
 from ..asyncio import AsyncioMixin
 from .base import Transport
@@ -35,26 +36,17 @@ class WebsocketsTransport(Transport, AsyncioMixin):
         websocket: Connection,
         loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
-        super().__init__()
         self._websocket = websocket
-        self._loop = loop
-        self._recv_task: Optional[asyncio.Task[None]] = None
+        super().__init__(loop=loop)
 
-        self.recv_loop()
-
-    def recv_loop(self) -> None:
+    async def recv_loop(self) -> None:
         """Start the background receive loop.
 
         Creates an asyncio task on the target loop that reads messages from
         the websocket and calls `msg_received` for each one.
         """
-
-        async def _recv_loop() -> None:
-            async for message in self._websocket:  # str or bytes
-                self.notify_msg_received_listeners(message)
-
-        loop = self.ensure_loop()
-        self._recv_task = loop.create_task(_recv_loop())
+        async for message in self._websocket:  # str or bytes
+            self.notify_msg_received_listeners(message)
 
     def send_text_impl(self, data: str) -> Optional[asyncio.Task[None]]:
         return self.run_coroutine(self._websocket.send(data))
@@ -62,20 +54,8 @@ class WebsocketsTransport(Transport, AsyncioMixin):
     def send_bytes_impl(self, data: bytes) -> Optional[asyncio.Task[None]]:
         return self.run_coroutine(self._websocket.send(data))
 
-    def close(self) -> Optional[asyncio.Task[None]]:
-        """Close the transport."""
+    def close_impl(self) -> Optional[Coroutine[Any, Any, None]]:
+        if self._websocket.state == WebsocketsState.CLOSED:
+            return None
 
-        super_close = super().close
-
-        def _close(task: asyncio.Task[None]) -> None:
-            del task
-
-            if self._recv_task and not self._recv_task.done():
-                self._recv_task.cancel()
-
-            super_close()
-
-        task = self.run_coroutine(self._websocket.close())
-        task.add_done_callback(_close)
-
-        return task
+        return self._websocket.close()

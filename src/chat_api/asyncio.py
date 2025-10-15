@@ -17,7 +17,10 @@ class AsyncioMixin:
     the running loop or starts a private background loop if necessary.
     """
 
-    _loop: Optional[asyncio.AbstractEventLoop] = None
+    def __init__(
+        self, loop: Optional[asyncio.AbstractEventLoop] = None
+    ) -> None:
+        self._loop = loop
 
     def ensure_loop(self) -> asyncio.AbstractEventLoop:
         """Ensure there is an event loop to schedule tasks on.

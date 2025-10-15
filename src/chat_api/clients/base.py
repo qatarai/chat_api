@@ -7,9 +7,10 @@ payloads over their respective transports.
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC
 from asyncio import Event, Task
-from typing import Optional, Tuple
+from typing import Coroutine, List, Optional, Tuple
 
 from ..enums import InterruptType
 from ..models import ID, InputEnd, Interrupt, new_id
@@ -41,7 +42,12 @@ class Base(ABC):
 
     async def join(self) -> None:
         """Wait for the client to finish sending all queued actions/events."""
-        await self._finished.wait()
+        # await both the finished event and the transport loop to finish
+        tasks: List[Task | Coroutine] = [self._finished.wait()]
+        transport_task = self._transport.join()
+        if transport_task:
+            tasks.append(transport_task)
+        await asyncio.gather(*tasks)
 
     @staticmethod
     def new_uuid() -> ID:

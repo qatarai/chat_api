@@ -4,25 +4,38 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Callable, Optional, Set
+from typing import Any, Callable, Coroutine, Optional, Set
 
 from chat_api.exceptions import ChatApiTransportError
 from chat_api.models import Event
 from chat_api.parsing import parse_bytes_event, parse_text_event
 
+from ..asyncio import AsyncioMixin
 
-class Transport(ABC):
+
+class Transport(ABC, AsyncioMixin):
     """Transport interface.
 
     Implementations must provide `send_text_impl`, `send_bytes_impl`, and call
     `notify_msg_received_listeners` when inbound messages arrive.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self, loop: Optional[asyncio.AbstractEventLoop] = None
+    ) -> None:
         """Initialize the transport."""
         self.on_event_received_callbacks: Set[Callable[[Event], None]] = set()
         self.on_event_sent_callbacks: Set[Callable[[Event], None]] = set()
         self.parse_media_uuid: bool = False
+        self._recv_task: Optional[asyncio.Task] = None
+
+        super().__init__(loop=loop)
+        self._recv_task = self.run_coroutine(self.recv_loop())
+
+    @abstractmethod
+    async def recv_loop(self) -> None:
+        """Start the background receive loop."""
+        raise NotImplementedError()
 
     def set_parse_media_uuid(self, parse_media_uuid: bool) -> None:
         """Set the parse media uuid flag."""
@@ -103,12 +116,36 @@ class Transport(ABC):
             raise ChatApiTransportError(f"Unknown message type: {type(data)}")
 
     @abstractmethod
+    def close_impl(self) -> Optional[Coroutine[Any, Any, None]]:
+        """The transport-specific implementation of closing the transport."""
+        raise NotImplementedError()
+
     def close(self) -> Optional[asyncio.Task[None]]:
         """Release all resources, including event listeners."""
-        self.on_event_received_callbacks.clear()
-        self.on_event_sent_callbacks.clear()
-        return None
+
+        def _close(task: Optional[asyncio.Task[None]]) -> None:
+            del task
+
+            if self._recv_task and not self._recv_task.done():
+                self._recv_task.cancel()
+
+            self.on_event_received_callbacks.clear()
+            self.on_event_sent_callbacks.clear()
+
+        task = None
+        close_impl_task = self.close_impl()
+        if close_impl_task:
+            task = self.run_coroutine(close_impl_task)
+            task.add_done_callback(_close)
+        else:
+            _close(None)
+
+        return task
 
     def __del__(self) -> None:
         """Release all resources, including event listeners."""
         self.close()
+
+    def join(self) -> Optional[asyncio.Task[None]]:
+        """Join the transport."""
+        return self._recv_task
