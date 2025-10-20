@@ -43,9 +43,6 @@ class ServerRequestState(RequestState):
         if self._config and self._config.input_mode != InputMode.AUDIO:
             raise ChatApiStateError("Input mode is not audio")
 
-        if self._input_end:
-            raise ChatApiStateError("Input has already been ended")
-
         if self._output_end:
             raise ChatApiStateError("Output has already been ended")
 

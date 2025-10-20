@@ -58,7 +58,7 @@ class Client(Base):
         self.event_callback = event_callback
 
         # Set the parse media uuid flag to True
-        self._transport.set_parse_media_uuid(True)
+        self._transport.set_is_client(True)
 
         # Register callback for incoming events
         self._transport.on_event_received(self.event_received_callback)

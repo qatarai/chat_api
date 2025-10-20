@@ -26,7 +26,7 @@ class Transport(ABC, AsyncioMixin):
         """Initialize the transport."""
         self.on_event_received_callbacks: Set[Callable[[Event], None]] = set()
         self.on_event_sent_callbacks: Set[Callable[[Event], None]] = set()
-        self.parse_media_uuid: bool = False
+        self.is_client: bool = False
         self._recv_task: Optional[asyncio.Task] = None
 
         super().__init__(loop=loop)
@@ -37,9 +37,9 @@ class Transport(ABC, AsyncioMixin):
         """Start the background receive loop."""
         raise NotImplementedError()
 
-    def set_parse_media_uuid(self, parse_media_uuid: bool) -> None:
-        """Set the parse media uuid flag."""
-        self.parse_media_uuid = parse_media_uuid
+    def set_is_client(self, is_client: bool) -> None:
+        """Set the is client flag."""
+        self.is_client = is_client
 
     @abstractmethod
     def send_text_impl(self, data: str) -> Optional[asyncio.Task[None]]:
@@ -90,7 +90,7 @@ class Transport(ABC, AsyncioMixin):
 
     def notify_msg_sent_listeners(self, data: str | bytes) -> None:
         """Sent a message to the transport."""
-        evt = self.parse_event(data)
+        evt = self.parse_event(data, is_sending=True)
         self.notify_event_sent_listeners(evt)
 
     def notify_event_received_listeners(self, data: Event) -> None:
@@ -103,14 +103,18 @@ class Transport(ABC, AsyncioMixin):
         for callback in self.on_event_sent_callbacks:
             callback(data)
 
-    def parse_event(self, data: str | bytes) -> Event:
+    def parse_event(
+        self,
+        data: str | bytes,
+        is_sending: bool = False,
+    ) -> Event:
         """Parse the event from the data."""
         if isinstance(data, str):
             return parse_text_event(data)
         elif isinstance(data, bytes):
             return parse_bytes_event(
                 data,
-                parse_media_uuid=self.parse_media_uuid,
+                parse_media_uuid=self.is_client ^ is_sending,
             )
         else:
             raise ChatApiTransportError(f"Unknown message type: {type(data)}")
