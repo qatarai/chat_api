@@ -62,7 +62,7 @@ sequenceDiagram
     Note over C,S: Legend<br/>blue = Client to Server<br/>green = Server to Client
 
     rect rgba(51,136,255,0.18)
-        Note over C,S: Config Event<br/>- event_type: EventType.CONFIG<br/>- chat_id: uuid?<br/>- input_mode: InputMode<br/>- output_text: bool<br/>- output_audio: bool<br/>- output_video: bool<br/>- silence_duration: float (ms, -1 => device)
+        Note over C,S: Config Event<br/>- event_type: EventType.CONFIG<br/>- chat_id: uuid? (optional)<br/>- input_mode: InputMode (default: TEXT)<br/>- silence_duration: float (default: -1)<br/>- nchannels: int (default: 1)<br/>- sample_rate: int (default: 16000)<br/>- sample_width: int (default: 2)<br/>- output_text: bool (default: True)<br/>- output_audio: bool (default: True)<br/>- output_video: bool (default: True)
         C->>S: Config
     end
 
@@ -173,10 +173,13 @@ sequenceDiagram
   - event_type: EventType.CONFIG (int)
   - chat_id: uuid (string, optional)
   - input_mode: InputMode (int)
+  - silence_duration: float (milliseconds; -1 enables on-device silence detection; only used for InputMode.Audio)
+  - nchannels: int
+  - sample_rate: int
+  - sample_width: int
   - output_text: bool
   - output_audio: bool
   - output_video: bool
-  - silence_duration: float (milliseconds; -1 enables on-device silence detection; only used for InputMode.Audio)
 
 - Input (Audio)
   - bytes: audio (binary, streamed in arbitrary chunk sizes)

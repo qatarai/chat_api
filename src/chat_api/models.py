@@ -34,11 +34,16 @@ class Config(Event):
 
     event_type: EventType = Field(default=EventType.CONFIG, frozen=True)
     chat_id: Optional[ID] = None
+    # Input
     input_mode: InputMode = Field(default=InputMode.TEXT)
+    silence_duration: float = Field(default=-1)
+    nchannels: int = Field(default=1)
+    sample_rate: int = Field(default=16000)
+    sample_width: int = Field(default=2)
+    # Output
     output_text: bool = Field(default=True)
     output_audio: bool = Field(default=True)
     output_video: bool = Field(default=True)
-    silence_duration: float = Field(default=-1)
 
 
 class InputText(Event):
