@@ -23,6 +23,7 @@ from ..models import (
     OutputText,
     OutputTranscription,
     ServerReady,
+    SessionEnd,
 )
 from ..states.client import ClientRequestState
 from ..streaming import SendStreamHandle
@@ -77,10 +78,15 @@ class Client(Base):
             self._request_state.end_input()
 
         elif isinstance(evt, OutputEnd):
-            self.close()
+            self._request_state.end_output()
+            self._request_state.reset()
 
         elif isinstance(evt, Interrupt):
             self._request_state.interrupt()
+            self._request_state.reset()
+
+        elif isinstance(evt, SessionEnd):
+            self._request_state.end_session()
             self.close()
 
         if isinstance(
@@ -97,6 +103,7 @@ class Client(Base):
                 OutputMedia,
                 OutputEnd,
                 Interrupt,
+                SessionEnd,
             ),
         ):
             self.event_callback(self, evt)
@@ -120,7 +127,7 @@ class Client(Base):
             return evt, task
 
         def end() -> Tuple[Optional[InputEnd], Optional[Task[None]]]:
-            return self.end_input()
+            return None, None
 
         return SendStreamHandle[bytes](
             content_id=None,

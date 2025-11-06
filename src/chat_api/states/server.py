@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Set
+from typing import Dict, Set
 
 from ..enums import InputMode
 from ..exceptions import ChatApiStateError
@@ -23,14 +23,13 @@ from .base import RequestState
 class ServerRequestState(RequestState):
     """Mutable request-scoped state used by server."""
 
-    _stage_id_to_parent_id: Dict[ID, Optional[ID]] = field(
+    _stage_id_to_stage: Dict[ID, OutputStage] = field(
         default_factory=dict, init=False
     )
-    _content_id_to_stage_id: Dict[ID, ID] = field(
+    _content_id_to_content: Dict[ID, OutputContent] = field(
         default_factory=dict, init=False
     )
     _content_ids_with_data: Set[ID] = field(default_factory=set, init=False)
-    _output_end: bool = field(default=False, init=False)
 
     def transcription(self) -> None:
         """Validate possibility of sending a transcription."""
@@ -57,7 +56,7 @@ class ServerRequestState(RequestState):
         if self._output_end:
             raise ChatApiStateError("Output has already been ended")
 
-        if stage.id in self._stage_id_to_parent_id:
+        if stage.id in self._stage_id_to_stage:
             raise ChatApiStateError(
                 "Stage with id {stage.id} already sent. "
                 "Stages must have unique ids."
@@ -73,13 +72,18 @@ class ServerRequestState(RequestState):
                     f"{current} and {stage.id}"
                 )
             visited.add(current)
-            current = self._stage_id_to_parent_id[current]
+            current = self._stage_id_to_stage[current].parent_id
 
-        self._stage_id_to_parent_id[stage.id] = stage.parent_id
+        self._stage_id_to_stage[stage.id] = stage
 
-    def has_content(self, content: OutputContent) -> bool:
-        """Check if the content has been sent."""
-        return content.id in self._content_id_to_stage_id
+    def has_content(self, content: OutputContent | ID) -> OutputContent | None:
+        """Check if the content has been sent and return it if it has."""
+        if isinstance(content, OutputContent):
+            content_id = content.id
+        else:
+            content_id = content
+
+        return self._content_id_to_content.get(content_id)
 
     def content(self, content: OutputContent) -> None:
         """Validate possibility of sending content."""
@@ -92,13 +96,13 @@ class ServerRequestState(RequestState):
         if self._output_end:
             raise ChatApiStateError("Output has already been ended")
 
-        if content.id in self._content_id_to_stage_id:
+        if self.has_content(content):
             raise ChatApiStateError(
                 "Content with id {content.id} already sent. "
                 "Contents must have unique ids."
             )
 
-        self._content_id_to_stage_id[content.id] = content.stage_id
+        self._content_id_to_content[content.id] = content
 
     def content_addition(
         self,
@@ -114,7 +118,7 @@ class ServerRequestState(RequestState):
         if self._output_end:
             raise ChatApiStateError("Output has already been ended")
 
-        if content_addition.content_id not in self._content_id_to_stage_id:
+        if not self.has_content(content_addition.content_id):
             raise ChatApiStateError(
                 "Content with id {content_addition.content_id} not found. "
                 "Content must be sent before adding metadata."
@@ -131,7 +135,7 @@ class ServerRequestState(RequestState):
         if self._output_end:
             raise ChatApiStateError("Output has already been ended")
 
-        if function_call.content_id not in self._content_id_to_stage_id:
+        if not self.has_content(function_call.content_id):
             raise ChatApiStateError(
                 "Content with id {function_call.content_id} not found. "
                 "Content must be sent before sending function call."
@@ -156,7 +160,7 @@ class ServerRequestState(RequestState):
         if self._output_end:
             raise ChatApiStateError("Output has already been ended")
 
-        if text.content_id not in self._content_id_to_stage_id:
+        if not self.has_content(text.content_id):
             raise ChatApiStateError(
                 "Content with id {text.content_id} not found. "
                 "Content must be sent before sending text."
@@ -175,7 +179,7 @@ class ServerRequestState(RequestState):
         if self._output_end:
             raise ChatApiStateError("Output has already been ended")
 
-        if media.content_id not in self._content_id_to_stage_id:
+        if not self.has_content(media.content_id):
             raise ChatApiStateError(
                 "Content with id {media.content_id} not found. "
                 "Content must be sent before sending media."
@@ -183,22 +187,24 @@ class ServerRequestState(RequestState):
 
         self._content_ids_with_data.add(media.content_id)
 
-    def end(self) -> None:
-        """Validate possibility of sending end."""
-        if self._interrupt:
-            raise ChatApiStateError("Request has been interrupted")
+    def end_output(self) -> None:
+        """Validate possibility of ending the output."""
+        super().end_output()
 
-        if not self._input_end:
-            raise ChatApiStateError("Input has not been ended")
+        try:
+            if len(self._content_ids_with_data) != len(
+                self._content_id_to_content
+            ):
+                raise ChatApiStateError(
+                    "All content must have data before ending the output."
+                )
+        except ChatApiStateError as e:
+            self._output_end = False
+            raise e
 
-        if self._output_end:
-            raise ChatApiStateError("Output has already been ended")
-
-        if len(self._content_ids_with_data) != len(
-            self._content_id_to_stage_id
-        ):
-            raise ChatApiStateError(
-                "All content must have data before sending end."
-            )
-
-        self._output_end = True
+    def reset(self) -> None:
+        super().reset()
+        self._stage_id_to_stage.clear()
+        self._content_id_to_content.clear()
+        self._content_ids_with_data.clear()
+        self._output_end = False

@@ -50,3 +50,7 @@ class ClientRequestState(RequestState):
 
         if self._config and self._config.input_mode != InputMode.AUDIO:
             raise ChatApiStateError("Input mode is not audio")
+
+    def reset(self) -> None:
+        super().reset()
+        self._text = False

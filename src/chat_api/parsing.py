@@ -26,6 +26,7 @@ from .models import (
     OutputTranscription,
     OutputVideoContent,
     ServerReady,
+    SessionEnd,
 )
 
 _EVENT_CLASS_BY_TYPE: dict[int, Type[Event]] = {
@@ -45,6 +46,7 @@ _EVENT_CLASS_BY_TYPE: dict[int, Type[Event]] = {
     EventType.OUTPUT_TEXT: OutputText,
     EventType.SERVER_READY: ServerReady,
     EventType.OUTPUT_TRANSCRIPTION: OutputTranscription,
+    EventType.SESSION_END: SessionEnd,
 }
 
 

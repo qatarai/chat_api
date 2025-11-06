@@ -183,12 +183,6 @@ class OutputFunctionCall(Event):
     data: str
 
 
-class OutputEnd(Event):
-    """Server->Client marker indicating the end of output for the request."""
-
-    event_type: EventType = Field(default=EventType.OUTPUT_END, frozen=True)
-
-
 class OutputMedia(Event):
     """Server->Client binary media chunk."""
 
@@ -199,6 +193,18 @@ class OutputMedia(Event):
     def get_bytes(self) -> bytes:
         """Get the bytes of the media chunk."""
         return self.content_id.bytes + self.data
+
+
+class OutputEnd(Event):
+    """Server->Client marker indicating the end of output for the request."""
+
+    event_type: EventType = Field(default=EventType.OUTPUT_END, frozen=True)
+
+
+class SessionEnd(Event):
+    """Server->Client marker indicating the end of the session."""
+
+    event_type: EventType = Field(default=EventType.SESSION_END, frozen=True)
 
 
 ########################################################

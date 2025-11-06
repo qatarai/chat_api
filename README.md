@@ -71,97 +71,111 @@ sequenceDiagram
         S-->>C: ServerReady
     end
 
-    alt input_mode = Audio
-        par Input audio chunks
-            loop Input audio chunks
+    loop For each request in the session
+        alt input_mode = Audio
+            par Input audio chunks
+                loop Input audio chunks
+                    rect rgba(51,136,255,0.18)
+                        Note over C,S: Input (Audio)<br/>- bytes: audio
+                        C-->>S: Audio Chunk
+                    end
+                end
+            and Transcriptions (partial/final)
+                loop Output transcription events
+                    rect rgba(76,175,80,0.18)
+                        Note over C,S: OutputTranscription<br/>- event_type: EventType.OUTPUT_TRANSCRIPTION<br/>- transcription: Transcription
+                        S-->>C: OutputTranscription
+                    end
+                end
+            end
+            alt silence_duration = -1 (device detection)
                 rect rgba(51,136,255,0.18)
-                    Note over C,S: Input (Audio)<br/>- bytes: audio
-                    C-->>S: Audio Chunk
+                    Note over C,S: InputEnd<br/>Condition: input_mode = Audio AND silence_duration = -1<br/>- event_type: EventType.INPUT_END
+                    C->>S: InputEnd
                 end
-            end
-        and Transcriptions (partial/final)
-            loop Output transcription events
+            else silence_duration > -1 (server detection)
                 rect rgba(76,175,80,0.18)
-                    Note over C,S: OutputTranscription<br/>- event_type: EventType.OUTPUT_TRANSCRIPTION<br/>- transcription: Transcription
-                    S-->>C: OutputTranscription
+                    Note over C,S: InputEnd<br/>Condition: input_mode = Audio AND silence_duration > -1<br/>- event_type: EventType.INPUT_END
+                    S-->>C: InputEnd
                 end
             end
-        end
-        alt silence_duration = -1 (device detection)
+        else input_mode = Text
             rect rgba(51,136,255,0.18)
-                Note over C,S: InputEnd<br/>Condition: input_mode = Audio AND silence_duration = -1<br/>- event_type: EventType.INPUT_END
+                Note over C,S: InputText<br/>- event_type: EventType.INPUT_TEXT<br/>- data: string
+                C->>S: InputText
+            end
+            rect rgba(51,136,255,0.18)
+                Note over C,S: InputEnd<br/>Condition: input_mode = Text<br/>- event_type: EventType.INPUT_END
                 C->>S: InputEnd
             end
-        else silence_duration > -1 (server detection)
-            rect rgba(76,175,80,0.18)
-                Note over C,S: InputEnd<br/>Condition: input_mode = Audio AND silence_duration > -1<br/>- event_type: EventType.INPUT_END
-                S-->>C: InputEnd
-            end
         end
-    else input_mode = Text
+
         rect rgba(51,136,255,0.18)
-            Note over C,S: InputText<br/>- event_type: EventType.INPUT_TEXT<br/>- data: string
-            C->>S: InputText
-        end
-        rect rgba(51,136,255,0.18)
-            Note over C,S: InputEnd<br/>Condition: input_mode = Text<br/>- event_type: EventType.INPUT_END
-            C->>S: InputEnd
-        end
-    end
-
-    rect rgba(51,136,255,0.18)
-        Note over C,S: Interrupt<br/>Condition: can occur at any time<br/>- event_type: EventType.INTERRUPT<br/>- interrupt_type: InterruptType
-        C->>S: Interrupt
-    end
-
-    loop For each stage
-        rect rgba(76,175,80,0.18)
-            Note over C,S: OutputStage<br/>- event_type: EventType.OUTPUT_STAGE<br/>- id: uuid<br/>- parent_id: uuid<br/>- title: string<br/>- description: string
-            S-->>C: OutputStage
+            Note over C,S: Interrupt<br/>Condition: can occur at any time<br/>- event_type: EventType.INTERRUPT<br/>- interrupt_type: InterruptType
+            C->>S: Interrupt
         end
 
-        rect rgba(76,175,80,0.18)
-            Note over C,S: Output*Content<br/>- event_type: EventType.OUTPUT_TEXT_CONTENT | OUTPUT_FUNCTION_CALL_CONTENT | OUTPUT_AUDIO_CONTENT | OUTPUT_VIDEO_CONTENT<br/>- id: uuid<br/>- type: ContentType<br/>- stage_id: uuid<br/>- audio: nchannels, sample_rate, sample_width (only for OUTPUT_AUDIO_CONTENT)<br/>- video: fps, width, height (only for OUTPUT_VIDEO_CONTENT)
-            S-->>C: Output*Content
-        end
-
-        rect rgba(76,175,80,0.18)
-            Note over C,S: OutputContentAddition<br/>- event_type: EventType.OUTPUT_CONTENT_ADDITION<br/>- content_id: uuid<br/>- …
-            S-->>C: OutputContentAddition
-        end
-
-        alt type = ContentType.Audio
-            loop Audio data chunks
-                rect rgba(76,175,80,0.18)
-                    Note over C,S: OutputMedia<br/>Info: each chunk prefixed with content_id (16 bytes)<br/>- event_type: EventType.OUTPUT_MEDIA<br/>- content_id: uuid (16 bytes)<br/>- bytes: audio
-                    S-->>C: Media Chunk
-                end
-            end
-        else type = ContentType.Video
-            loop Video data chunks
-                rect rgba(76,175,80,0.18)
-                    Note over C,S: OutputMedia<br/>Info: each chunk prefixed with content_id (16 bytes)<br/>- event_type: EventType.OUTPUT_MEDIA<br/>- content_id: uuid (16 bytes)<br/>- bytes: video
-                    S-->>C: Media Chunk
-                end
-            end
-        else type = ContentType.Text
-            loop Text data chunks
-                rect rgba(76,175,80,0.18)
-                    Note over C,S: OutputText<br/>- event_type: EventType.OUTPUT_TEXT<br/>- data: string (chunk)
-                    S-->>C: Text Chunk
-                end
-            end
-        else type = ContentType.FunctionCall
+        loop For each stage
             rect rgba(76,175,80,0.18)
-                Note over C,S: OutputFunctionCall<br/>- event_type: EventType.OUTPUT_FUNCTION_CALL<br/>- data: string (json)
-                S-->>C: FunctionCall
+                Note over C,S: OutputStage<br/>- event_type: EventType.OUTPUT_STAGE<br/>- id: uuid<br/>- parent_id: uuid<br/>- title: string<br/>- description: string
+                S-->>C: OutputStage
             end
+
+            rect rgba(76,175,80,0.18)
+                Note over C,S: Output*Content<br/>- event_type: EventType.OUTPUT_TEXT_CONTENT | OUTPUT_FUNCTION_CALL_CONTENT | OUTPUT_AUDIO_CONTENT | OUTPUT_VIDEO_CONTENT<br/>- id: uuid<br/>- type: ContentType<br/>- stage_id: uuid<br/>- audio: nchannels, sample_rate, sample_width (only for OUTPUT_AUDIO_CONTENT)<br/>- video: fps, width, height (only for OUTPUT_VIDEO_CONTENT)
+                S-->>C: Output*Content
+            end
+
+            rect rgba(76,175,80,0.18)
+                Note over C,S: OutputContentAddition<br/>- event_type: EventType.OUTPUT_CONTENT_ADDITION<br/>- content_id: uuid<br/>- …
+                S-->>C: OutputContentAddition
+            end
+
+            alt type = ContentType.Audio
+                loop Audio data chunks
+                    rect rgba(76,175,80,0.18)
+                        Note over C,S: OutputMedia<br/>Info: each chunk prefixed with content_id (16 bytes)<br/>- event_type: EventType.OUTPUT_MEDIA<br/>- content_id: uuid (16 bytes)<br/>- bytes: audio
+                        S-->>C: Media Chunk
+                    end
+                end
+            else type = ContentType.Video
+                loop Video data chunks
+                    rect rgba(76,175,80,0.18)
+                        Note over C,S: OutputMedia<br/>Info: each chunk prefixed with content_id (16 bytes)<br/>- event_type: EventType.OUTPUT_MEDIA<br/>- content_id: uuid (16 bytes)<br/>- bytes: video
+                        S-->>C: Media Chunk
+                    end
+                end
+            else type = ContentType.Text
+                loop Text data chunks
+                    rect rgba(76,175,80,0.18)
+                        Note over C,S: OutputText<br/>- event_type: EventType.OUTPUT_TEXT<br/>- data: string (chunk)
+                        S-->>C: Text Chunk
+                    end
+                end
+            else type = ContentType.FunctionCall
+                rect rgba(76,175,80,0.18)
+                    Note over C,S: OutputFunctionCall<br/>- event_type: EventType.OUTPUT_FUNCTION_CALL<br/>- data: string (json)
+                    S-->>C: FunctionCall
+                end
+            end
+        end
+
+        rect rgba(76,175,80,0.18)
+            Note over C,S: OutputEnd<br/>- event_type: EventType.OUTPUT_END
+            S-->>C: OutputEnd
         end
     end
 
-    rect rgba(76,175,80,0.18)
-        Note over C,S: OutputEnd<br/>- event_type: EventType.OUTPUT_END
-        S-->>C: OutputEnd
+    alt Server ends
+        rect rgba(76,175,80,0.18)
+            Note over C,S: SessionEnd<br/>- event_type: EventType.SESSION_END
+            S-->>C: SessionEnd
+        end
+    else Client ends
+        rect rgba(51,136,255,0.18)
+            Note over C,S: SessionEnd<br/>- event_type: EventType.SESSION_END
+            C->>S: SessionEnd
+        end
     end
 ```
 
@@ -194,6 +208,9 @@ sequenceDiagram
 - Interrupt
   - event_type: EventType.INTERRUPT (int)
   - interrupt_type: InterruptType (int)
+
+- SessionEnd
+  - event_type: EventType.SESSION_END (int)
 
 ### Server → Client
 
@@ -269,6 +286,9 @@ sequenceDiagram
 - OutputEnd
   - event_type: EventType.OUTPUT_END (int)
 
+- SessionEnd
+  - event_type: EventType.SESSION_END (int)
+
 ## Enums (all integer-valued)
 
 - InputMode
@@ -299,6 +319,7 @@ sequenceDiagram
   - 14: OUTPUT_MEDIA
   - 15: OUTPUT_FUNCTION_CALL
   - 16: OUTPUT_END
+  - 17: SESSION_END
 
 - InterruptType
   - 0: USER

@@ -43,6 +43,7 @@ class EventType(IntEnum):
     OUTPUT_MEDIA = 14
     OUTPUT_FUNCTION_CALL = 15
     OUTPUT_END = 16
+    SESSION_END = 17
 
 
 class InterruptType(IntEnum):

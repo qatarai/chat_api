@@ -7,7 +7,7 @@ from enum import Enum
 from websockets.asyncio.client import connect
 from websockets.asyncio.server import serve
 
-from chat_api import Client, Event, Server
+from chat_api import Client, Event, OutputEnd, Server
 from chat_api.models import InputEnd, ServerReady
 from chat_api.transports import InMemoryTransport, Transport
 from chat_api.transports.websockets import WebsocketsTransport
@@ -93,15 +93,28 @@ async def test_complete_flow(transport_type: TransportType):
             stream.send("hello")
             stream.send("world")
             stream.end()
+            s2c.end_output()
 
-            s2c.end()
+    max_requests = 2
+    n_requests = 0
 
     def on_output(c2s: Client, event: Event) -> None:
+        nonlocal n_requests
         print_event(server=False, event=event)
 
         if isinstance(event, ServerReady):
             c2s.text("hello")
             c2s.end_input()
+            n_requests += 1
+
+        elif isinstance(event, OutputEnd):
+            if n_requests >= max_requests:
+                c2s.end_session()
+
+            else:
+                c2s.text("hello")
+                c2s.end_input()
+                n_requests += 1
 
     # Initialize the server and client transports
     s2c_tx, c2s_tx = await transport_type.setup_transports()

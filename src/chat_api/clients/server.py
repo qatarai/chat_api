@@ -26,6 +26,7 @@ from ..models import (
     OutputTranscription,
     OutputVideoContent,
     ServerReady,
+    SessionEnd,
     Transcription,
 )
 from ..states import ServerRequestState
@@ -46,7 +47,12 @@ class Server(Base):
         event_callback: Callable[
             [
                 Server,
-                Config | InputText | InputMedia | InputEnd | Interrupt,
+                Config
+                | InputText
+                | InputMedia
+                | InputEnd
+                | Interrupt
+                | SessionEnd,
             ],
             None,
         ],
@@ -80,10 +86,22 @@ class Server(Base):
 
         elif isinstance(evt, Interrupt):
             self._request_state.interrupt()
+            self._request_state.reset()
+
+        elif isinstance(evt, SessionEnd):
+            self._request_state.end_session()
             self.close()
 
         if isinstance(
-            evt, (Config, InputText, InputMedia, InputEnd, Interrupt)
+            evt,
+            (
+                Config,
+                InputText,
+                InputMedia,
+                InputEnd,
+                Interrupt,
+                SessionEnd,
+            ),
         ):
             self.event_callback(self, evt)
 
@@ -144,52 +162,126 @@ class Server(Base):
 
     def text_content(
         self,
-        stage_id: ID,
+        stage_id: Optional[ID],
         content_id: Optional[ID] = None,
     ) -> Tuple[OutputContent, Optional[Task[None]]]:
-        """Send an OutputTextContent event."""
+        """Send an OutputTextContent event.
+
+        Either content id or stage id must be provided.
+
+        Args:
+            stage_id: The target stage id.
+            content_id: Optional pre-defined content id. If not provided a new one
+                is generated.
+
+        Returns:
+            Tuple[OutputContent, Optional[Task[None]]]: The content event
+                sent and the task for sending it. If the content has already been sent,
+                the task is None.
+        """
         content_id = content_id or self.new_uuid()
+        content = self._request_state.has_content(content_id)
+
+        if content:
+            return content, None
+
+        if not stage_id:
+            raise ValueError(
+                "Stage id must be provided when no content id is provided"
+            )
+
         evt = OutputTextContent(
             id=content_id,
             stage_id=stage_id,
         )
 
-        task = None
-        if not self._request_state.has_content(evt):
-            self._request_state.content(evt)
-            task = self._transport.send_event(evt)
+        self._request_state.content(evt)
+        task = self._transport.send_event(evt)
 
         return evt, task
 
     def function_call_content(
         self,
-        stage_id: ID,
+        stage_id: Optional[ID],
         content_id: Optional[ID] = None,
     ) -> Tuple[OutputContent, Optional[Task[None]]]:
-        """Send an OutputFunctionCallContent event."""
+        """Send an OutputFunctionCallContent event.
+
+        Either content id or stage id must be provided.
+
+        Args:
+            stage_id: Target stage id.
+            content_id: Optional pre-defined target content id. If not provided a new one
+                is generated.
+
+        Returns:
+            Tuple[OutputContent, Optional[Task[None]]]: The content event
+                sent and the task for sending it. If the content has already been sent,
+                the task is None.
+        """
         content_id = content_id or self.new_uuid()
+        content = self._request_state.has_content(content_id)
+
+        if content:
+            return content, None
+
+        if not stage_id:
+            raise ValueError(
+                "Stage id must be provided when no content id is provided"
+            )
+
         evt = OutputFunctionCallContent(
             id=content_id,
             stage_id=stage_id,
         )
 
-        task = None
-        if not self._request_state.has_content(evt):
-            self._request_state.content(evt)
-            task = self._transport.send_event(evt)
+        self._request_state.content(evt)
+        task = self._transport.send_event(evt)
 
         return evt, task
 
     def audio_content(
         self,
-        stage_id: ID,
-        nchannels: int,
-        sample_rate: int,
-        sample_width: int,
+        stage_id: Optional[ID],
+        nchannels: Optional[int],
+        sample_rate: Optional[int],
+        sample_width: Optional[int],
         content_id: Optional[ID] = None,
     ) -> Tuple[OutputContent, Optional[Task[None]]]:
-        """Send an OutputAudioContent event."""
+        """Send an OutputAudioContent event.
+
+        Either content id or (stage_id, nchannels, sample_rate, sample_width) must be provided.
+
+        Args:
+            stage_id: Target stage id.
+            nchannels: Number of audio channels.
+            sample_rate: Audio sample rate.
+            sample_width: Sample width in bytes.
+            content_id: Optional pre-defined target content id. If not provided a new one
+            is generated.
+
+        Returns:
+            Tuple[OutputContent, Optional[Task[None]]]: The content event
+                sent and the task for sending it. If the content has already been sent,
+                the task is None.
+        """
         content_id = content_id or self.new_uuid()
+        content = self._request_state.has_content(content_id)
+
+        if content:
+            return content, None
+
+        if (
+            not stage_id
+            or not nchannels
+            or not sample_rate
+            or not sample_width
+        ):
+            raise ValueError(
+                "When no content id is provided, stage_id, nchannels, sample_rate and"
+                " sample_width must be provided"
+            )
+
         evt = OutputAudioContent(
             id=content_id,
             stage_id=stage_id,
@@ -198,23 +290,47 @@ class Server(Base):
             sample_width=sample_width,
         )
 
-        task = None
-        if not self._request_state.has_content(evt):
-            self._request_state.content(evt)
-            task = self._transport.send_event(evt)
+        self._request_state.content(evt)
+        task = self._transport.send_event(evt)
 
         return evt, task
 
     def video_content(
         self,
-        stage_id: ID,
-        fps: int,
-        width: int,
-        height: int,
+        stage_id: Optional[ID],
+        fps: Optional[int],
+        width: Optional[int],
+        height: Optional[int],
         content_id: Optional[ID] = None,
     ) -> Tuple[OutputContent, Optional[Task[None]]]:
-        """Send an OutputVideoContent event."""
+        """Send an OutputVideoContent event.
+
+        Either content id or (stage_id, fps, width, height) must be provided.
+
+        Args:
+            stage_id: Target stage id.
+            fps: Video frames per second.
+            width: Frame width.
+            height: Frame height.
+            content_id: Optional pre-defined target content id. If not provided a new one
+                is generated.
+
+        Returns:
+            Tuple[OutputContent, Optional[Task[None]]]: The content event
+                sent and the task for sending it. If the content has already been sent,
+                the task is None.
+        """
         content_id = content_id or self.new_uuid()
+        content = self._request_state.has_content(content_id)
+
+        if content:
+            return content, None
+
+        if not stage_id or not fps or not width or not height:
+            raise ValueError(
+                "When no content id is provided, stage_id, fps, width and height must be provided"
+            )
+
         evt = OutputVideoContent(
             id=content_id,
             stage_id=stage_id,
@@ -223,10 +339,8 @@ class Server(Base):
             height=height,
         )
 
-        task = None
-        if not self._request_state.has_content(evt):
-            self._request_state.content(evt)
-            task = self._transport.send_event(evt)
+        self._request_state.content(evt)
+        task = self._transport.send_event(evt)
 
         return evt, task
 
@@ -246,12 +360,26 @@ class Server(Base):
 
     def function_call(
         self,
-        stage_id: ID,
         json_data: str,
+        stage_id: Optional[ID],
         content_id: Optional[ID] = None,
     ) -> Tuple[OutputFunctionCall, Optional[Task[None]]]:
-        """Send an OutputFunctionCall event."""
-        content_evt, task = self.text_content(
+        """Send an OutputFunctionCall event.
+
+        Either content id or stage id must be provided.
+
+        Args:
+            json_data: The JSON data to send.
+            stage_id: Target stage id.
+            content_id: Optional pre-defined target content id. If not provided a new one
+                is generated.
+
+        Returns:
+            Tuple[OutputFunctionCall, Optional[Task[None]]]: The function call event
+                sent and the task for sending it. If the function call has already been sent,
+                the task is None.
+        """
+        content_evt, task = self.function_call_content(
             stage_id=stage_id,
             content_id=content_id,
         )
@@ -267,13 +395,15 @@ class Server(Base):
     def text_stream(
         self,
         *,
-        stage_id: ID,
+        stage_id: Optional[ID],
         content_id: Optional[ID] = None,
     ) -> Tuple[SendStreamHandle[str], Optional[Task[None]]]:
         """Start a text stream.
 
+        Either content id or stage id must be provided.
+
         Args:
-            stage_id: The target stage.
+            stage_id: Target stage id.
             content_id: Optional pre-defined content id.
 
         Returns:
@@ -307,13 +437,15 @@ class Server(Base):
     def audio_stream(
         self,
         *,
-        stage_id: ID,
+        stage_id: Optional[ID],
         nchannels: Optional[int],
         sample_rate: Optional[int],
         sample_width: Optional[int],
         content_id: Optional[ID] = None,
     ) -> Tuple[SendStreamHandle[bytes], Optional[Task[None]]]:
         """Start a binary audio stream.
+
+        Either content id or (stage_id, nchannels, sample_rate, sample_width) must be provided.
 
         Args:
             stage_id: The target stage id.
@@ -326,14 +458,6 @@ class Server(Base):
             Tuple[SendStreamHandle[bytes], Optional[Task[None]]]: A handle with send
                 and end methods and the task for sending the content.
         """
-        if content_id is None and (
-            nchannels is None or sample_rate is None or sample_width is None
-        ):
-            raise ValueError(
-                "When no content id is provided, nchannels, sample_rate and"
-                " sample_width must be provided"
-            )
-
         content_evt, task = self.audio_content(
             stage_id=stage_id,
             nchannels=nchannels,
@@ -355,6 +479,8 @@ class Server(Base):
     ) -> Tuple[SendStreamHandle[bytes], Optional[Task[None]]]:
         """Start a binary video stream.
 
+        Either content id or (stage_id, fps, width, height) must be provided.
+
         Args:
             stage_id: The target stage id.
             fps: Video frames per second.
@@ -366,13 +492,6 @@ class Server(Base):
             Tuple[SendStreamHandle[bytes], Optional[Task[None]]]: A handle with send
                 and end methods and the task for sending the content.
         """
-        if content_id is None and (
-            fps is None or width is None or height is None
-        ):
-            raise ValueError(
-                "When no content id is provided, fps, width and height must be provided"
-            )
-
         content_evt, task = self.video_content(
             stage_id=stage_id,
             fps=fps,
@@ -383,17 +502,12 @@ class Server(Base):
         stream_handle = self._prepare_media_stream(content_evt)
         return stream_handle, task
 
-    def end(self) -> Tuple[OutputEnd, Optional[Task[None]]]:
+    def end_output(self) -> Tuple[OutputEnd, Optional[Task[None]]]:
         """Tell the client that the server has finished sending output."""
-        self._request_state.end()
+        self._request_state.end_output()
+        self._request_state.reset()
         evt = OutputEnd()
         task = self._transport.send_event(evt)
-
-        if task:
-            task.add_done_callback(self.close)
-        else:
-            self.close()
-
         return evt, task
 
     def _prepare_media_stream(

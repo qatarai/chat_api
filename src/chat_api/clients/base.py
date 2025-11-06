@@ -13,7 +13,7 @@ from asyncio import Event, Task
 from typing import Coroutine, List, Optional, Tuple
 
 from ..enums import InterruptType
-from ..models import ID, InputEnd, Interrupt, new_id
+from ..models import ID, InputEnd, Interrupt, SessionEnd, new_id
 from ..states import RequestState
 from ..transports import Transport
 
@@ -73,6 +73,19 @@ class Base(ABC):
         self._request_state.interrupt()
         evt = Interrupt(interrupt_type=interrupt_type)
         task = self._transport.send_event(evt)
+        return evt, task
+
+    def end_session(self) -> Tuple[SessionEnd, Optional[Task[None]]]:
+        """End the session."""
+        self._request_state.end_session()
+        evt = SessionEnd()
+        task = self._transport.send_event(evt)
+
+        if task:
+            task.add_done_callback(self.close)
+        else:
+            self.close()
+
         return evt, task
 
     def close(self, task: Optional[Task[None]] = None) -> Optional[Task[None]]:
