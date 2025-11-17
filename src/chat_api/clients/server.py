@@ -78,10 +78,7 @@ class Server(Base):
 
     def event_received_callback(self, evt: Event) -> None:
         """Handle a client->server event."""
-        if isinstance(evt, Config):
-            self.ready(evt)
-
-        elif isinstance(evt, InputEnd):
+        if isinstance(evt, InputEnd):
             self._request_state.end_input()
 
         elif isinstance(evt, Interrupt):
