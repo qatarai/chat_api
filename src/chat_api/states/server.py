@@ -202,6 +202,12 @@ class ServerRequestState(RequestState):
             self._output_end = False
             raise e
 
+    def interrupt(self) -> None:
+        super().interrupt()
+        self._stage_id_to_stage.clear()
+        self._content_id_to_content.clear()
+        self._content_ids_with_data.clear()
+
     def reset(self) -> None:
         super().reset()
         self._stage_id_to_stage.clear()

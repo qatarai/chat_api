@@ -30,14 +30,12 @@ class RequestState(ABC):
 
     def ready(self, config: Config) -> None:
         """Mark the server as ready to receive input."""
-        if self._interrupt:
-            raise ChatApiStateError("Request has been interrupted")
-
         if self._ready:
             raise ChatApiStateError("Server already ready")
 
         self._config = config
         self._ready = True
+        self._interrupt = False
 
     def end_input(self) -> None:
         """End the input."""
@@ -58,6 +56,8 @@ class RequestState(ABC):
             raise ChatApiStateError("Request has already been interrupted")
 
         self._interrupt = True
+        self._input_end = False
+        self._output_end = False
 
     def end_output(self) -> None:
         """Validate possibility of ending the output."""
