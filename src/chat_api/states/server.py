@@ -23,9 +23,7 @@ from .base import RequestState
 class ServerRequestState(RequestState):
     """Mutable request-scoped state used by server."""
 
-    _stage_id_to_stage: Dict[ID, OutputStage] = field(
-        default_factory=dict, init=False
-    )
+    _stage_id_to_stage: Dict[ID, OutputStage] = field(default_factory=dict, init=False)
     _content_id_to_content: Dict[ID, OutputContent] = field(
         default_factory=dict, init=False
     )
@@ -58,8 +56,7 @@ class ServerRequestState(RequestState):
 
         if stage.id in self._stage_id_to_stage:
             raise ChatApiStateError(
-                "Stage with id {stage.id} already sent. "
-                "Stages must have unique ids."
+                "Stage with id {stage.id} already sent. Stages must have unique ids."
             )
 
         # Check for parent-child cycles
@@ -192,9 +189,7 @@ class ServerRequestState(RequestState):
         super().end_output()
 
         try:
-            if len(self._content_ids_with_data) != len(
-                self._content_id_to_content
-            ):
+            if len(self._content_ids_with_data) != len(self._content_id_to_content):
                 raise ChatApiStateError(
                     "All content must have data before ending the output."
                 )
@@ -202,15 +197,8 @@ class ServerRequestState(RequestState):
             self._output_end = False
             raise e
 
-    def interrupt(self) -> None:
-        super().interrupt()
-        self._stage_id_to_stage.clear()
-        self._content_id_to_content.clear()
-        self._content_ids_with_data.clear()
-
     def reset(self) -> None:
         super().reset()
         self._stage_id_to_stage.clear()
         self._content_id_to_content.clear()
         self._content_ids_with_data.clear()
-        self._output_end = False

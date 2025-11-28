@@ -47,12 +47,7 @@ class Server(Base):
         event_callback: Callable[
             [
                 Server,
-                Config
-                | InputText
-                | InputMedia
-                | InputEnd
-                | Interrupt
-                | SessionEnd,
+                Config | InputText | InputMedia | InputEnd | Interrupt | SessionEnd,
             ],
             None,
         ],
@@ -83,7 +78,6 @@ class Server(Base):
 
         elif isinstance(evt, Interrupt):
             self._request_state.interrupt()
-            self._request_state.reset()
 
         elif isinstance(evt, SessionEnd):
             self._request_state.end_session()
@@ -183,9 +177,7 @@ class Server(Base):
             return content, None
 
         if not stage_id:
-            raise ValueError(
-                "Stage id must be provided when no content id is provided"
-            )
+            raise ValueError("Stage id must be provided when no content id is provided")
 
         evt = OutputTextContent(
             id=content_id,
@@ -223,9 +215,7 @@ class Server(Base):
             return content, None
 
         if not stage_id:
-            raise ValueError(
-                "Stage id must be provided when no content id is provided"
-            )
+            raise ValueError("Stage id must be provided when no content id is provided")
 
         evt = OutputFunctionCallContent(
             id=content_id,
@@ -268,12 +258,7 @@ class Server(Base):
         if content:
             return content, None
 
-        if (
-            not stage_id
-            or not nchannels
-            or not sample_rate
-            or not sample_width
-        ):
+        if not stage_id or not nchannels or not sample_rate or not sample_width:
             raise ValueError(
                 "When no content id is provided, stage_id, nchannels, sample_rate and"
                 " sample_width must be provided"
