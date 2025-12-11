@@ -9,6 +9,7 @@ from uuid import UUID
 from .enums import EventType
 from .models import (
     Config,
+    Error,
     Event,
     InputEnd,
     InputMedia,
@@ -47,6 +48,7 @@ _EVENT_CLASS_BY_TYPE: dict[int, Type[Event]] = {
     EventType.SERVER_READY: ServerReady,
     EventType.OUTPUT_TRANSCRIPTION: OutputTranscription,
     EventType.SESSION_END: SessionEnd,
+    EventType.ERROR: Error,
 }
 
 

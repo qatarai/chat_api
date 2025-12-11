@@ -1,17 +1,13 @@
 """Custom exceptions for the Chat API client library."""
 
 
-class ChatApiError(Exception):
+class ChatApiException(Exception):
     """Base exception for all Chat API errors."""
 
 
-class ChatApiValidationError(ChatApiError):
-    """Raised when invalid inputs or protocol usage are detected."""
-
-
-class ChatApiStateError(ChatApiError):
+class ChatApiStateException(ChatApiException):
     """Raised when operations are performed in an invalid state."""
 
 
-class ChatApiTransportError(ChatApiError):
+class ChatApiTransportException(ChatApiException):
     """Raised when a transport error occurs."""

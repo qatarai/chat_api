@@ -44,6 +44,7 @@ class EventType(IntEnum):
     OUTPUT_FUNCTION_CALL = 15
     OUTPUT_END = 16
     SESSION_END = 17
+    ERROR = 18
 
 
 class InterruptType(IntEnum):
@@ -51,3 +52,14 @@ class InterruptType(IntEnum):
 
     USER = 0
     SYSTEM = 1
+
+
+class Status(IntEnum):
+    """Status of the interface."""
+
+    NOT_READY = 0
+    GETTING_READY = 1
+    READY = 3
+    INPUT = 4
+    OUTPUT = 5
+    END = 6
