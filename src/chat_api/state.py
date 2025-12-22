@@ -189,13 +189,7 @@ class State:
                 "Input mode must be audio to send transcription."
             )
 
-        if self._status not in (Status.INPUT, Status.OUTPUT):
-            raise ChatApiStateException(
-                f"Cannot send transcription while server is {self._status.name}."
-                "Must be in INPUT or OUTPUT status."
-            )
-
-        self._status = Status.OUTPUT
+        # TODO: Constrain status.
 
     def stage(self, event: OutputStage) -> None:
         """Send a stage."""
