@@ -23,8 +23,8 @@ class Transport(ABC):
         self.send_queue = ThreadQueue[Event | None]()
         self.receive_queue = ThreadQueue[Event | None]()
 
-        self.send_thread = Thread(target=self.run_send, daemon=True)
-        self.receive_thread = Thread(target=self.run_receive, daemon=True)
+        self.send_thread = Thread(target=self.run_send)
+        self.receive_thread = Thread(target=self.run_receive)
         self.send_thread.start()
         self.receive_thread.start()
 

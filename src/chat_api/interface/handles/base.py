@@ -63,7 +63,7 @@ class BaseInterfaceHandle(ABC):
 
         self.chat_id: ID | None = None
 
-        self.response_thread = Thread(target=self.run_response, daemon=True)
+        self.response_thread = Thread(target=self.run_response)
         self.response_thread.start()
 
     def run_response(self) -> None:
