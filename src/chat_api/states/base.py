@@ -33,9 +33,6 @@ class RequestState(ABC):
         if self._interrupt:
             raise ChatApiStateError("Request has been interrupted")
 
-        if self._ready:
-            raise ChatApiStateError("Server already ready")
-
         self._config = config
         self._ready = True
 
