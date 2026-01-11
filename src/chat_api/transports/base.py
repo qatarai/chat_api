@@ -9,7 +9,7 @@ from chat_api.exceptions import ChatApiTransportException
 from chat_api.models import Event, InputMedia, OutputMedia
 from chat_api.parsing import parse_bytes_event, parse_text_event
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("[ChatAPI:Transport]")
 
 
 class Transport(ABC):
@@ -32,12 +32,9 @@ class Transport(ABC):
 
     def send(self, event: Event) -> None:
         """Send an event to the other side of the connection."""
-        if isinstance(event, (InputMedia, OutputMedia)):
-            log.debug("Queueing media event with size: %s", len(event.data))
-        else:
-            log.debug("Queueing event: %s", event)
-
+        log.debug("[Sending] Queuing %r", event)
         self.send_queue.put(event)
+        log.debug("[Sending] Queued %r", event)
 
     @abstractmethod
     def send_impl(self, data: str | bytes) -> None:
@@ -49,22 +46,19 @@ class Transport(ABC):
         while True:
             event = self.send_queue.get()
             if event is None:
+                log.debug("[Sending] Terminating send loop")
                 break
 
-            if isinstance(event, (InputMedia, OutputMedia)):
-                log.debug("Sending media event with size: %s", len(event.data))
-            else:
-                log.debug("Sending event: %s", event)
-
+            log.debug("[Sending] Sending %r", event)
             self.send_impl(
                 event.get_bytes()
                 if isinstance(event, (InputMedia, OutputMedia))
                 else event.model_dump_json()
             )
-
+            log.debug("[Sending] Sent %r", event)
             self.send_queue.task_done()
 
-        log.debug("Send loop terminated")
+        log.debug("[Sending] Terminated send loop")
 
     def receive(self) -> Event | None:
         """Receive an event from the other side of the connection.
@@ -72,12 +66,8 @@ class Transport(ABC):
         IMPORTANT: Return None after the last event.
         """
         event = self.receive_queue.get()
+        log.debug("[Receiving] Received %r", event)
         self.receive_queue.task_done()
-
-        if isinstance(event, (InputMedia, OutputMedia)):
-            log.debug("Unqueued media event with size: %s", len(event.data))
-        else:
-            log.debug("Unqueued event: %s", event)
 
         return event
 
@@ -91,18 +81,25 @@ class Transport(ABC):
         while True:
             data = self.receive_impl()
             if data is None:
+                log.debug("[Receiving] Terminating receive loop")
                 self.receive_queue.put(None)
                 break
 
             if isinstance(data, bytes):
-                log.debug("Received bytes data with size: %s", len(data))
+                log.debug("[Receiving] Received %r bytes", len(data))
+                log.debug("[Receiving] Parsing %r bytes", len(data))
             else:
-                log.debug("Received text data: %s", data)
+                log.debug("[Receiving] Received %r", data)
+                log.debug("[Receiving] Parsing %r", data)
 
             event = self.parse_event(data)
-            self.receive_queue.put(event)
+            log.debug("[Receiving] Parsed %r", event)
 
-        log.debug("Receive loop terminated")
+            log.debug("[Receiving] Queuing %r", event)
+            self.receive_queue.put(event)
+            log.debug("[Receiving] Queued %r", event)
+
+        log.debug("[Receiving] Terminated receive loop")
 
     def parse_event(
         self,
@@ -121,18 +118,18 @@ class Transport(ABC):
 
     def wait_for_send(self) -> None:
         """Wait for the send queue to be empty."""
-        log.debug("Waiting for send queue to be empty")
+        log.debug("[Sending] Blocking until all events are sent")
         self.send_queue.join()
-        log.debug("Send queue is empty")
+        log.debug("[Sending] Unblocked after all events are sent")
 
     def close(self) -> None:
         """Close the transport."""
-        log.debug("Closing")
+        log.debug("Closing the transport")
         self.send_queue.put(None)
 
     def join(self) -> None:
         """Join the transport."""
-        log.debug("Joining to wait closing")
+        log.debug("Blocking until the transport is closed")
         self.send_thread.join()
         self.receive_thread.join()
-        log.debug("Closed")
+        log.debug("Unblocked after the transport is closed")

@@ -38,6 +38,32 @@ class Event(BaseModel):
 
     event_type: EventType
 
+    def __repr__(self) -> str:
+        if isinstance(self, InputMedia):
+            string = f"{type(self).__name__} {{ data: {len(self.data)} bytes }}"
+
+        elif isinstance(self, OutputMedia):
+            string = (
+                f"{type(self).__name__} {{"
+                f"content_id: {self.content_id!r}, "
+                f"data: {len(self.data)} bytes"
+                f"}}"
+            )
+
+        else:
+            string = (
+                f"{type(self).__name__} "
+                + "{"
+                + ", ".join(
+                    f"{field}: {value!r}"
+                    for field, value in self.model_dump().items()
+                    if field != "event_type"
+                )
+                + "}"
+            )
+
+        return string
+
 
 class EventRequest(BaseModel):
     """Request to send an event."""

@@ -10,6 +10,7 @@ from .interface import (
     ServerInterfaceHandle,
 )
 from .models import (
+    ID,
     Config,
     Error,
     Event,
@@ -35,10 +36,13 @@ from .models import (
     SessionEnd,
     Transcription,
     Word,
+    new_id,
 )
 from .transports import InMemoryTransport
 
 __all__ = [
+    "ID",
+    "new_id",
     "ContentType",
     "EventType",
     "InterruptType",

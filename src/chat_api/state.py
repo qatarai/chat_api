@@ -99,8 +99,8 @@ class State:
         """Set the config."""
         if self._status not in (Status.NOT_READY, Status.READY):
             raise ChatApiStateException(
-                f"Cannot set config while server is {self._status.name}. "
-                "Must be in NOT_READY or READY status."
+                f"Cannot set config while status is {self._status.name}."
+                " Status must be NOT_READY or READY."
             )
 
         self._status = Status.GETTING_READY
@@ -112,8 +112,8 @@ class State:
 
         if self._status != Status.GETTING_READY:
             raise ChatApiStateException(
-                f"Cannot mark server as ready while server is {self._status.name}."
-                "Must be in GETTING_READY status."
+                f"Cannot mark server as ready while status is {self._status.name}."
+                " Status must be GETTING_READY."
             )
 
         self._status = Status.READY
@@ -124,8 +124,8 @@ class State:
 
         if self._status != Status.INPUT:
             raise ChatApiStateException(
-                f"Cannot end input while server is {self._status.name}."
-                "Must be in INPUT status."
+                f"Cannot end input while status is {self._status.name}."
+                " Status must be INPUT."
             )
 
         self._status = Status.OUTPUT
@@ -136,7 +136,7 @@ class State:
 
         if self._status == Status.END:
             raise ChatApiStateException(
-                "Session has already been ended. Cannot interrupt."
+                "Cannot interrupt. Session has already been ended (Status.END)."
             )
 
         self._status = Status.GETTING_READY if self._config else Status.NOT_READY
@@ -148,8 +148,8 @@ class State:
 
         if self._status != Status.OUTPUT:
             raise ChatApiStateException(
-                f"Cannot end output while server is {self._status.name}."
-                "Must be in OUTPUT status."
+                f"Cannot end output while status is {self._status.name}."
+                " Status must be OUTPUT."
             )
 
         if len(self._content_ids_with_data) != len(self._content_id_to_content):
@@ -170,7 +170,7 @@ class State:
 
         if self._status == Status.END:
             raise ChatApiStateException(
-                "Session has already been ended. Cannot end session."
+                "Cannot end session. Session has already been ended (Status.END)."
             )
 
         self._status = Status.END
@@ -186,7 +186,7 @@ class State:
 
         if self._config and self._config.input_mode != InputMode.AUDIO:
             raise ChatApiStateException(
-                "Input mode must be audio to send transcription."
+                "Cannot send transcription. Configured input mode must be audio."
             )
 
         # TODO: Constrain status.
@@ -195,8 +195,8 @@ class State:
         """Send a stage."""
         if self._status != Status.OUTPUT:
             raise ChatApiStateException(
-                f"Cannot send stage while server is {self._status.name}."
-                "Must be in OUTPUT status."
+                f"Cannot send stage while status is {self._status.name}."
+                " Status must be OUTPUT."
             )
 
         if event.id in self._stage_id_to_stage:
@@ -211,8 +211,8 @@ class State:
         """Send a content."""
         if self._status != Status.OUTPUT:
             raise ChatApiStateException(
-                f"Cannot send content while server is {self._status.name}."
-                "Must be in OUTPUT status."
+                f"Cannot send content while status is {self._status.name}."
+                " Status must be OUTPUT."
             )
 
         if event.id in self._content_id_to_content:
@@ -226,7 +226,7 @@ class State:
             and not self._config.output_audio
         ):
             raise ChatApiStateException(
-                "Output audio is not enabled in the config. Cannot send audio content."
+                "Cannot send audio content. Output audio is not enabled in the config."
             )
 
         if (
@@ -235,7 +235,7 @@ class State:
             and not self._config.output_video
         ):
             raise ChatApiStateException(
-                "Output video is not enabled in the config. Cannot send video content."
+                "Cannot send video content. Output video is not enabled in the config."
             )
 
         self._status = Status.OUTPUT
@@ -245,22 +245,22 @@ class State:
         """Send a content addition."""
         if self._status != Status.OUTPUT:
             raise ChatApiStateException(
-                f"Cannot send content addition while server is {self._status.name}."
-                "Must be in OUTPUT status."
+                f"Cannot send content addition while status is {self._status.name}."
+                " Status must be OUTPUT."
             )
 
         if event.content_id not in self._content_id_to_content:
             raise ChatApiStateException(
                 f"Content with id {event.content_id} not found. "
-                "Content must be sent before adding metadata."
+                "Content must be sent before sending content addition."
             )
 
     def function_call(self, event: OutputFunctionCall) -> None:
         """Send a function call."""
         if self._status != Status.OUTPUT:
             raise ChatApiStateException(
-                f"Cannot send function call while server is {self._status.name}."
-                "Must be in OUTPUT status."
+                f"Cannot send function call while status is {self._status.name}."
+                " Status must be OUTPUT."
             )
 
         if event.content_id not in self._content_id_to_content:
@@ -272,8 +272,9 @@ class State:
         content_type = self._content_id_to_content[event.content_id].type
         if content_type != ContentType.FUNCTION_CALL:
             raise ChatApiStateException(
-                f"Content with id {event.content_id} has type {content_type.name}. "
-                f"Must be {ContentType.FUNCTION_CALL.name}."
+                f"Cannot send function call for content with id {event.content_id}. "
+                f"Content type must be {ContentType.FUNCTION_CALL.name} but "
+                f"but content with id {event.content_id} has type {content_type.name}."
             )
 
         self._content_ids_with_data.add(event.content_id)
@@ -294,12 +295,14 @@ class State:
 
         if self._status not in (Status.READY, Status.INPUT):
             raise ChatApiStateException(
-                f"Cannot send input text while server is {self._status.name}."
-                "Must be in READY or INPUT status."
+                f"Cannot send input text while status is {self._status.name}."
+                " Status must be READY or INPUT."
             )
 
         if self._config and self._config.input_mode != InputMode.TEXT:
-            raise ChatApiStateException("Input mode must be text to send input text.")
+            raise ChatApiStateException(
+                "Cannot send input text. Configured input mode must be text."
+            )
 
         self._status = Status.INPUT
 
@@ -307,8 +310,8 @@ class State:
         """Send an output text."""
         if self._status != Status.OUTPUT:
             raise ChatApiStateException(
-                f"Cannot send output text while server is {self._status.name}."
-                "Must be in OUTPUT status."
+                f"Cannot send output text while status is {self._status.name}."
+                " Status must be OUTPUT."
             )
 
         if event.content_id not in self._content_id_to_content:
@@ -320,8 +323,9 @@ class State:
         content_type = self._content_id_to_content[event.content_id].type
         if content_type != ContentType.TEXT:
             raise ChatApiStateException(
-                f"Content with id {event.content_id} has type {content_type.name}. "
-                f"Must be {ContentType.TEXT.name}."
+                f"Cannot send output text for content with id {event.content_id}. "
+                f"Content type must be {ContentType.TEXT.name} but "
+                f"content with id {event.content_id} has type {content_type.name}."
             )
 
         self._content_ids_with_data.add(event.content_id)
@@ -342,12 +346,14 @@ class State:
 
         if self._status not in (Status.READY, Status.INPUT):
             raise ChatApiStateException(
-                f"Cannot send input media while server is {self._status.name}."
-                "Must be in READY or INPUT status."
+                f"Cannot send input media while status is {self._status.name}."
+                " Status must be READY or INPUT."
             )
 
         if self._config and self._config.input_mode != InputMode.AUDIO:
-            raise ChatApiStateException("Input mode must be audio to send input media.")
+            raise ChatApiStateException(
+                "Cannot send input media. Configured input mode must be audio."
+            )
 
         self._status = Status.INPUT
 
@@ -355,8 +361,8 @@ class State:
         """Send an output media."""
         if self._status != Status.OUTPUT:
             raise ChatApiStateException(
-                f"Cannot send output media while server is {self._status.name}. "
-                "Must be in OUTPUT status."
+                f"Cannot send output media while status is {self._status.name}. "
+                " Status must be OUTPUT."
             )
 
         if event.content_id not in self._content_id_to_content:
@@ -368,8 +374,9 @@ class State:
         content_type = self._content_id_to_content[event.content_id].type
         if content_type not in (ContentType.AUDIO, ContentType.VIDEO):
             raise ChatApiStateException(
-                f"Content with id {event.content_id} has type {content_type.name}. "
-                f"Must be {ContentType.AUDIO.name} or {ContentType.VIDEO.name}."
+                f"Cannot send output media for content with id {event.content_id}."
+                f" Content type must be {ContentType.AUDIO.name} or {ContentType.VIDEO.name} but "
+                f"content with id {event.content_id} has type {content_type.name}."
             )
 
         self._content_ids_with_data.add(event.content_id)
