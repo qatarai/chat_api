@@ -62,7 +62,10 @@ class BaseInterfaceHandle(ABC):
         self.acks = dict[ID, Ack]()
 
         self.chat_id: ID | None = None
+        self.response_thread: Thread | None = None
 
+    def start(self) -> None:
+        """Start the handle."""
         self.response_thread = Thread(target=self.run_response)
         self.response_thread.start()
 
@@ -82,7 +85,9 @@ class BaseInterfaceHandle(ABC):
 
     def join(self) -> None:
         """Join the handle."""
-        self.response_thread.join()
+        if self.response_thread is not None:
+            self.response_thread.join()
+            self.response_thread = None
 
     @property
     def status(self) -> Status:
