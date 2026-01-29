@@ -139,6 +139,16 @@ class State:
                 "Cannot interrupt. Session has already been ended (Status.END)."
             )
 
+        if self._status == Status.GETTING_READY:
+            raise ChatApiStateException(
+                "Cannot interrupt. Server is still getting ready (Status.GETTING_READY)."
+            )
+
+        if self._status == Status.READY:
+            raise ChatApiStateException(
+                "Cannot interrupt. Server is already ready (Status.READY)."
+            )
+
         self._status = Status.GETTING_READY if self._config else Status.NOT_READY
         self._clear()
 
