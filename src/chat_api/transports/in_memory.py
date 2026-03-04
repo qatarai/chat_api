@@ -1,30 +1,27 @@
 """In-memory transport useful for tests/examples."""
 
-from typing import Any, Coroutine, Optional
-
-from .base import Transport
+from .base import ThreadQueue, Transport
 
 
 class InMemoryTransport(Transport):
     """In-memory transport useful for tests/examples."""
 
     def __init__(self) -> None:
+        self.dummy_data_queue: ThreadQueue[str | bytes | None] = ThreadQueue()
         super().__init__()
-        self._text_queue: list[str] = []
-        self._bytes_queue: list[bytes] = []
 
-    async def recv_loop(self) -> None:
-        """Receive loop."""
-        return None
+    def send_impl(self, data: str | bytes) -> None:
+        pass
 
-    def send_text_impl(self, data: str) -> None:
-        self._text_queue.append(data)
+    def receive_impl(self) -> str | bytes | None:
+        data = self.dummy_data_queue.get()
+        self.dummy_data_queue.task_done()
+        return data
 
-    def send_bytes_impl(self, data: bytes) -> None:
-        self._bytes_queue.append(data)
+    def dummy_data(self, data: str | bytes) -> None:
+        """Put dummy data into the queue."""
+        self.dummy_data_queue.put(data)
 
-    def close_impl(self) -> Optional[Coroutine[Any, Any, None]]:
-        """Close the transport."""
-        self._text_queue.clear()
-        self._bytes_queue.clear()
-        return None
+    def close(self) -> None:
+        self.dummy_data_queue.put(None)
+        super().close()

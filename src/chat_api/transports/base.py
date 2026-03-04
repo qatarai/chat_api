@@ -1,112 +1,109 @@
 """Abstract transport interfaces."""
 
-from __future__ import annotations
-
-import asyncio
+import logging
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Coroutine, Optional, Set
+from queue import Queue as ThreadQueue
+from threading import Thread
 
-from chat_api.exceptions import ChatApiTransportError
-from chat_api.models import Event
+from chat_api.exceptions import ChatApiTransportException
+from chat_api.models import Event, InputMedia, OutputMedia
 from chat_api.parsing import parse_bytes_event, parse_text_event
 
-from ..asyncio import AsyncioMixin
+log = logging.getLogger("[ChatAPI:Transport]")
 
 
-class Transport(ABC, AsyncioMixin):
+class Transport(ABC):
     """Transport interface.
 
-    Implementations must provide `send_text_impl`, `send_bytes_impl`, and call
-    `notify_msg_received_listeners` when inbound messages arrive.
+    This transport is responsible for sending and receiving events
+    to and from the other side of the connection.
     """
 
-    def __init__(
-        self, loop: Optional[asyncio.AbstractEventLoop] = None
-    ) -> None:
-        """Initialize the transport."""
-        self.on_event_received_callbacks: Set[Callable[[Event], None]] = set()
-        self.on_event_sent_callbacks: Set[Callable[[Event], None]] = set()
-        self.is_client: bool = False
-        self._recv_task: Optional[asyncio.Task] = None
+    def __init__(self, is_client: bool = False) -> None:
+        self.send_queue = ThreadQueue[Event | None]()
+        self.receive_queue = ThreadQueue[Event | None]()
 
-        super().__init__(loop=loop)
-        self._recv_task = self.run_coroutine(self.recv_loop())
+        self.send_thread = Thread(target=self.run_send)
+        self.receive_thread = Thread(target=self.run_receive)
+        self.send_thread.start()
+        self.receive_thread.start()
 
-    @abstractmethod
-    async def recv_loop(self) -> None:
-        """Start the background receive loop."""
-        raise NotImplementedError()
-
-    def set_is_client(self, is_client: bool) -> None:
-        """Set the is client flag."""
         self.is_client = is_client
 
-    @abstractmethod
-    def send_text_impl(self, data: str) -> Optional[asyncio.Task[None]]:
-        """The transport-specific implementation of sending text data.
-
-        This method should not be called directly. Use `send_text` instead.
-        """
-        raise NotImplementedError()
+    def send(self, event: Event) -> None:
+        """Send an event to the other side of the connection."""
+        log.debug("[Sending] Queuing %r", event)
+        self.send_queue.put(event)
+        log.debug("[Sending] Queued %r", event)
 
     @abstractmethod
-    def send_bytes_impl(self, data: bytes) -> Optional[asyncio.Task[None]]:
-        """The transport-specific implementation of sending bytes data.
-
-        This method should not be called directly. Use `send_bytes` instead.
-        """
+    def send_impl(self, data: str | bytes) -> None:
+        """Send a message to the other side of the connection."""
         raise NotImplementedError()
 
-    def send_text(self, data: str) -> Optional[asyncio.Task[None]]:
-        """Send text data."""
-        task = self.send_text_impl(data)
-        self.notify_msg_sent_listeners(data)
-        return task
+    def run_send(self) -> None:
+        """Run the send loop."""
+        while True:
+            event = self.send_queue.get()
+            if event is None:
+                log.debug("[Sending] Terminating send loop")
+                break
 
-    def send_bytes(self, data: bytes) -> Optional[asyncio.Task[None]]:
-        """Send bytes data."""
-        task = self.send_bytes_impl(data)
-        self.notify_msg_sent_listeners(data)
-        return task
+            log.debug("[Sending] Sending %r", event)
+            self.send_impl(
+                event.get_bytes()
+                if isinstance(event, (InputMedia, OutputMedia))
+                else event.model_dump_json()
+            )
+            log.debug("[Sending] Sent %r", event)
+            self.send_queue.task_done()
 
-    def send_event(self, obj: Event) -> Optional[asyncio.Task[None]]:
-        """Send JSON data."""
-        task = self.send_text_impl(obj.model_dump_json())
-        self.notify_event_sent_listeners(obj)
-        return task
+        log.debug("[Sending] Terminated send loop")
 
-    def on_event_received(self, callback: Callable[[Event], None]) -> None:
-        """Add an event received listener."""
-        self.on_event_received_callbacks.add(callback)
+    def receive(self) -> Event | None:
+        """Receive an event from the other side of the connection.
 
-    def on_event_sent(self, callback: Callable[[Event], None]) -> None:
-        """Add an event sent listener."""
-        self.on_event_sent_callbacks.add(callback)
+        IMPORTANT: Return None after the last event.
+        """
+        event = self.receive_queue.get()
+        log.debug("[Receiving] Received %r", event)
+        self.receive_queue.task_done()
 
-    def notify_msg_received_listeners(self, data: str | bytes) -> None:
-        """Received a message from the transport."""
-        evt = self.parse_event(data)
-        self.notify_event_received_listeners(evt)
+        return event
 
-    def notify_msg_sent_listeners(self, data: str | bytes) -> None:
-        """Sent a message to the transport."""
-        evt = self.parse_event(data, is_sending=True)
-        self.notify_event_sent_listeners(evt)
+    @abstractmethod
+    def receive_impl(self) -> str | bytes | None:
+        """Receive a message from the other side of the connection."""
+        raise NotImplementedError()
 
-    def notify_event_received_listeners(self, data: Event) -> None:
-        """Notify all event received listeners."""
-        for callback in self.on_event_received_callbacks:
-            callback(data)
+    def run_receive(self) -> None:
+        """Run the receive loop."""
+        while True:
+            data = self.receive_impl()
+            if data is None:
+                log.debug("[Receiving] Terminating receive loop")
+                self.receive_queue.put(None)
+                break
 
-    def notify_event_sent_listeners(self, data: Event) -> None:
-        """Notify all event sent listeners."""
-        for callback in self.on_event_sent_callbacks:
-            callback(data)
+            if isinstance(data, bytes):
+                log.debug("[Receiving] Received %r bytes", len(data))
+                log.debug("[Receiving] Parsing %r bytes", len(data))
+            else:
+                log.debug("[Receiving] Received %r", data)
+                log.debug("[Receiving] Parsing %r", data)
+
+            event = self.parse_event(data)
+            log.debug("[Receiving] Parsed %r", event)
+
+            log.debug("[Receiving] Queuing %r", event)
+            self.receive_queue.put(event)
+            log.debug("[Receiving] Queued %r", event)
+
+        log.debug("[Receiving] Terminated receive loop")
 
     def parse_event(
         self,
         data: str | bytes,
-        is_sending: bool = False,
     ) -> Event:
         """Parse the event from the data."""
         if isinstance(data, str):
@@ -114,42 +111,25 @@ class Transport(ABC, AsyncioMixin):
         elif isinstance(data, bytes):
             return parse_bytes_event(
                 data,
-                parse_media_uuid=self.is_client ^ is_sending,
+                parse_media_uuid=self.is_client,
             )
         else:
-            raise ChatApiTransportError(f"Unknown message type: {type(data)}")
+            raise ChatApiTransportException(f"Unknown message type: {type(data)}")
 
-    @abstractmethod
-    def close_impl(self) -> Optional[Coroutine[Any, Any, None]]:
-        """The transport-specific implementation of closing the transport."""
-        raise NotImplementedError()
+    def wait_for_send(self) -> None:
+        """Wait for the send queue to be empty."""
+        log.debug("[Sending] Blocking until all events are sent")
+        self.send_queue.join()
+        log.debug("[Sending] Unblocked after all events are sent")
 
-    def close(self) -> Optional[asyncio.Task[None]]:
-        """Release all resources, including event listeners."""
+    def close(self) -> None:
+        """Close the transport."""
+        log.debug("Closing the transport")
+        self.send_queue.put(None)
 
-        def _close(task: Optional[asyncio.Task[None]]) -> None:
-            del task
-
-            if self._recv_task and not self._recv_task.done():
-                self._recv_task.cancel()
-
-            self.on_event_received_callbacks.clear()
-            self.on_event_sent_callbacks.clear()
-
-        task = None
-        close_impl_task = self.close_impl()
-        if close_impl_task:
-            task = self.run_coroutine(close_impl_task)
-            task.add_done_callback(_close)
-        else:
-            _close(None)
-
-        return task
-
-    def __del__(self) -> None:
-        """Release all resources, including event listeners."""
-        self.close()
-
-    def join(self) -> Optional[asyncio.Task[None]]:
+    def join(self) -> None:
         """Join the transport."""
-        return self._recv_task
+        log.debug("Blocking until the transport is closed")
+        self.send_thread.join()
+        self.receive_thread.join()
+        log.debug("Unblocked after the transport is closed")

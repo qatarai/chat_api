@@ -1,0 +1,22 @@
+"""Client interface."""
+
+from multiprocessing import Queue as ProcessQueue
+from multiprocessing.shared_memory import ShareableList
+
+from ..models import EventRequest
+from .base import BaseInterface
+from .handles import ClientInterfaceHandle
+
+
+class ClientInterface(BaseInterface[ClientInterfaceHandle]):
+    """Client interface."""
+
+    def new_handle(
+        self,
+        send_queue: "ProcessQueue[EventRequest | None]",
+        shared_status: ShareableList[int],
+    ) -> ClientInterfaceHandle:
+        return ClientInterfaceHandle(
+            send_queue=send_queue,
+            shared_status=shared_status,
+        )

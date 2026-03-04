@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=80", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "chat_api"
@@ -8,25 +8,13 @@ version = "0.1.0"
 description = "Stateful client library for Chat API protocol (client<->server)."
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "development" }]
 license = { text = "MIT" }
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-]
-dynamic = ["dependencies", "optional-dependencies"]
+dependencies = ["pydantic", "typing-extensions"]
 
-[tool.setuptools]
-packages = { find = { where = ["src"] } }
+[project.optional-dependencies]
+websockets = ["websockets"]
+fastapi = ["fastapi"]
+test = ["uvicorn"]
 
-[tool.setuptools.package-data]
-"chat_api" = ["py.typed"]
-
-[tool.setuptools.dynamic]
-dependencies = { file = ["requirements.txt"] }
-optional-dependencies = { websockets = { file = "requirements/websockets.txt" }, fastapi = { file = "requirements/fastapi.txt" } }
+[tool.hatch.build.targets.wheel]
+packages = ["src/chat_api"]

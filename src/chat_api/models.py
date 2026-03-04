@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Generic, Optional, TypeVar
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -18,6 +18,17 @@ new_id = uuid4
 
 
 ########################################################
+# State-related models
+########################################################
+
+
+class StateError(BaseModel):
+    """Error in the state of the interface."""
+
+    message: str
+
+
+########################################################
 # Events
 ########################################################
 
@@ -27,10 +38,54 @@ class Event(BaseModel):
 
     event_type: EventType
 
+    def __repr__(self) -> str:
+        if isinstance(self, InputMedia):
+            string = f"{type(self).__name__} {{ data: {len(self.data)} bytes }}"
+
+        elif isinstance(self, OutputMedia):
+            string = (
+                f"{type(self).__name__} {{"
+                f"content_id: {self.content_id!r}, "
+                f"data: {len(self.data)} bytes"
+                f"}}"
+            )
+
+        else:
+            string = (
+                f"{type(self).__name__} "
+                + "{"
+                + ", ".join(
+                    f"{field}: {value!r}"
+                    for field, value in self.model_dump().items()
+                    if field != "event_type"
+                )
+                + "}"
+            )
+
+        return string
+
+
+class EventRequest(BaseModel):
+    """Request to send an event."""
+
+    id: ID
+    sender: ID
+    event: Event
+
+
+T = TypeVar("T", bound=Event)
+
+
+class EventResponse(BaseModel, Generic[T]):
+    """Response to an event request."""
+
+    id: ID
+    result: T | StateError
+
 
 # Client -> Server
 class Config(Event):
-    """Client->Server configuration message for a request session."""
+    """Client->Server configuration message for a requests in a chat session."""
 
     event_type: EventType = Field(default=EventType.CONFIG, frozen=True)
     chat_id: Optional[ID] = None
@@ -59,18 +114,9 @@ class InputMedia(Event):
     event_type: EventType = Field(default=EventType.INPUT_MEDIA, frozen=True)
     data: bytes
 
-
-class InputEnd(Event):
-    """Client->Server marker indicating end of input."""
-
-    event_type: EventType = Field(default=EventType.INPUT_END, frozen=True)
-
-
-class Interrupt(Event):
-    """Client->Server interrupt signal indicating reason for interruption."""
-
-    event_type: EventType = Field(default=EventType.INTERRUPT, frozen=True)
-    interrupt_type: InterruptType
+    def get_bytes(self) -> bytes:
+        """Get the bytes of the media chunk."""
+        return self.data
 
 
 # Server -> Client
@@ -89,9 +135,7 @@ class ServerReady(Event):
 class OutputTranscription(Event):
     """Server->Client audio transcription."""
 
-    event_type: EventType = Field(
-        default=EventType.OUTPUT_TRANSCRIPTION, frozen=True
-    )
+    event_type: EventType = Field(default=EventType.OUTPUT_TRANSCRIPTION, frozen=True)
     transcription: Transcription
 
 
@@ -116,9 +160,7 @@ class OutputContent(Event):
 class OutputTextContent(OutputContent):
     """Server->Client text content declaration belonging to a stage."""
 
-    event_type: EventType = Field(
-        default=EventType.OUTPUT_TEXT_CONTENT, frozen=True
-    )
+    event_type: EventType = Field(default=EventType.OUTPUT_TEXT_CONTENT, frozen=True)
     type: ContentType = Field(default=ContentType.TEXT, frozen=True)
 
 
@@ -134,9 +176,7 @@ class OutputFunctionCallContent(OutputContent):
 class OutputAudioContent(OutputContent):
     """Server->Client audio content declaration belonging to a stage."""
 
-    event_type: EventType = Field(
-        default=EventType.OUTPUT_AUDIO_CONTENT, frozen=True
-    )
+    event_type: EventType = Field(default=EventType.OUTPUT_AUDIO_CONTENT, frozen=True)
     type: ContentType = Field(default=ContentType.AUDIO, frozen=True)
     nchannels: int
     sample_rate: int
@@ -146,9 +186,7 @@ class OutputAudioContent(OutputContent):
 class OutputVideoContent(OutputContent):
     """Server->Client video content declaration belonging to a stage."""
 
-    event_type: EventType = Field(
-        default=EventType.OUTPUT_VIDEO_CONTENT, frozen=True
-    )
+    event_type: EventType = Field(default=EventType.OUTPUT_VIDEO_CONTENT, frozen=True)
     type: ContentType = Field(default=ContentType.VIDEO, frozen=True)
     fps: int
     width: int
@@ -176,9 +214,7 @@ class OutputText(Event):
 class OutputFunctionCall(Event):
     """Server->Client function call payload encoded as a JSON string."""
 
-    event_type: EventType = Field(
-        default=EventType.OUTPUT_FUNCTION_CALL, frozen=True
-    )
+    event_type: EventType = Field(default=EventType.OUTPUT_FUNCTION_CALL, frozen=True)
     content_id: ID
     data: str
 
@@ -201,10 +237,31 @@ class OutputEnd(Event):
     event_type: EventType = Field(default=EventType.OUTPUT_END, frozen=True)
 
 
+# Client <-> Server
+class InputEnd(Event):
+    """Client<->Server marker indicating end of input."""
+
+    event_type: EventType = Field(default=EventType.INPUT_END, frozen=True)
+
+
+class Interrupt(Event):
+    """Client<->Server interrupt signal indicating reason for interruption."""
+
+    event_type: EventType = Field(default=EventType.INTERRUPT, frozen=True)
+    interrupt_type: InterruptType
+
+
 class SessionEnd(Event):
-    """Server->Client marker indicating the end of the session."""
+    """Client<->Server marker indicating the end of the session."""
 
     event_type: EventType = Field(default=EventType.SESSION_END, frozen=True)
+
+
+class Error(Event):
+    """Client<->Server error signal indicating an error occurred."""
+
+    event_type: EventType = Field(default=EventType.ERROR, frozen=True)
+    message: str
 
 
 ########################################################
