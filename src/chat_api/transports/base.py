@@ -37,7 +37,7 @@ class Transport(ABC):
         log.debug("[Sending] Queued %r", event)
 
     @abstractmethod
-    def send_impl(self, data: str | bytes) -> None:
+    def send_impl(self, data: str | bytes) -> bool | Exception | None:
         """Send a message to the other side of the connection."""
         raise NotImplementedError()
 
@@ -50,12 +50,19 @@ class Transport(ABC):
                 break
 
             log.debug("[Sending] Sending %r", event)
-            self.send_impl(
+            result = self.send_impl(
                 event.get_bytes()
                 if isinstance(event, (InputMedia, OutputMedia))
                 else event.model_dump_json()
             )
-            log.debug("[Sending] Sent %r", event)
+            if isinstance(result, Exception):
+                log.error("[Sending] Error while sending %r: %s", event, result)
+            elif result is None:
+                log.error("[Sending] Connection closed while sending %r", event)
+                log.debug("[Sending] Terminating send loop")
+                break
+            else:
+                log.debug("[Sending] Sent %r", event)
             self.send_queue.task_done()
 
         log.debug("[Sending] Terminated send loop")

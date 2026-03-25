@@ -16,13 +16,23 @@ class StarletteTransport(Transport):
         self.loop = asyncio.get_event_loop()
         super().__init__(is_client=is_client)
 
-    def send_impl(self, data: str | bytes) -> None:
-        asyncio.run_coroutine_threadsafe(
-            self.websocket.send_text(data)
-            if isinstance(data, str)
-            else self.websocket.send_bytes(data),
-            self.loop,
-        ).result()
+    def send_impl(self, data: str | bytes) -> bool | Exception | None:
+        try:
+            asyncio.run_coroutine_threadsafe(
+                self.websocket.send_text(data)
+                if isinstance(data, str)
+                else self.websocket.send_bytes(data),
+                self.loop,
+            ).result()
+        except RuntimeError as e:
+            if "after sending 'websocket.close'" in str(e):
+                return None
+            else:
+                raise e
+        except Exception as e:
+            return e
+        else:
+            return True
 
     def receive_impl(self) -> str | bytes | None:
         try:

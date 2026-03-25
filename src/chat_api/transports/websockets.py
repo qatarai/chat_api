@@ -13,8 +13,15 @@ class WebsocketsTransport(Transport):
         self.websocket = websocket
         super().__init__(is_client=is_client)
 
-    def send_impl(self, data: str | bytes) -> None:
-        self.websocket.send(data)
+    def send_impl(self, data: str | bytes) -> bool | Exception | None:
+        try:
+            self.websocket.send(data)
+        except ConnectionClosed:
+            return None
+        except Exception as e:
+            return e
+        else:
+            return True
 
     def receive_impl(self) -> str | bytes | None:
         try:
