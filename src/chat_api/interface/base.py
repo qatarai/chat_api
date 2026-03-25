@@ -100,7 +100,7 @@ class BaseInterface(ABC, Generic[T]):
             event = self.transport.receive()
 
             if event is None:
-                break
+                event = SessionEnd()
 
             try:
                 event = self.validate(event)
@@ -110,11 +110,11 @@ class BaseInterface(ABC, Generic[T]):
                 # TODO: handle other exceptions gracefully
                 raise e
             else:
-                if isinstance(event, SessionEnd):
-                    self.close()
-
                 for handle in self.handles.values():
                     handle.receive_queue.put(event)
+                if isinstance(event, SessionEnd):
+                    self.close()
+                    break
 
     def validate(self, event: Event) -> Event:
         """Validate the event."""

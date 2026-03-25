@@ -55,6 +55,7 @@ class Transport(ABC):
                 if isinstance(event, (InputMedia, OutputMedia))
                 else event.model_dump_json()
             )
+
             if isinstance(result, Exception):
                 log.error("[Sending] Error while sending %r: %s", event, result)
             elif result is None:
@@ -63,6 +64,7 @@ class Transport(ABC):
                 break
             else:
                 log.debug("[Sending] Sent %r", event)
+
             self.send_queue.task_done()
 
         log.debug("[Sending] Terminated send loop")

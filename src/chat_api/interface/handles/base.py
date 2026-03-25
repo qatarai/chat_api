@@ -96,6 +96,9 @@ class BaseInterfaceHandle(ABC):
 
     def send(self, event: T) -> T | StateError:
         """Send an event to the interface."""
+        if self.status == Status.END:
+            return StateError(message="Cannot send event after session has ended.")
+
         event_request = EventRequest(id=new_id(), sender=self.id, event=event)
         self.acks[event_request.id] = Ack()
         self.send_queue.put(event_request)
