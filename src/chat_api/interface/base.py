@@ -100,6 +100,8 @@ class BaseInterface(ABC, Generic[T]):
             event = self.transport.receive()
 
             if event is None:
+                if self.state._status == Status.END:
+                    break
                 event = SessionEnd()
 
             try:
