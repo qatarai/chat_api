@@ -91,6 +91,7 @@ class Config(Event):
     chat_id: Optional[ID] = None
     # Input
     input_mode: InputMode = Field(default=InputMode.TEXT)
+    language_code: str | None = None
     silence_duration: float = Field(default=-1)
     nchannels: int = Field(default=1)
     sample_rate: int = Field(default=16000)
